@@ -44,8 +44,8 @@
 %% [OPT] Fancy package for source code listings.  The template text
 %% needs it for some LaTeX snippets; remove/adapt the \lstset when you
 %% remove the template content.
-\usepackage{listings}
-\lstset{language=TeX,basicstyle={\normalfont\ttfamily}}
+\usepackage{listings, listings-rust}
+\def\rustinline{\lstinline[language=Rust, style=boxed]}
 
 %% [REC] Fancy character protrusion.  Must be loaded after all fonts.
 \usepackage{microtype}

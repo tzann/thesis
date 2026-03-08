@@ -1,0 +1,110 @@
+\chapter{Methodology}\label{ch:methodology}
+
+In this chapter, we present our main randomized median-finding algorithm in full detail and analyze its performance. We first give a high-level description and provide the pseudocode in Algorithm~\ref{alg:randmedian}. We then prove two central theorems: one that establishes the algorithm’s probability of success (i.e.\ returning the correct median) and another that bounds its running time by \Oh*{n}. Throughout this chapter, we use the notation introduced in Chapter~\ref{ch:notation}.
+
+\section{Key Challenges}
+
+
+
+\section{Core Ideas}
+
+\subsection{Reentrancy Protection}
+
+As we have seen, reentrancy vulnerabilities are one of the most prevalent, yet easily classifiable kinds of exploits. While the exact attack pattern may vary, it must by definition always involve a nested call into a contract that is already mid-execution. Interestingly, most smart contracts do not even require reentrant calls for their intended purpose. In fact, many contracts that have been exploited via reentrant calls did not require reentrant calls to work at all. In many cases, the issue was simply a lack of adequate protection against reentrant calls. \\
+Given the high financial stakes in this environment, it seems clear that allowing reentrant calls by default is not ideal. Most projects do not use reentrancy at all, and thus developers should not be forced to reason about such cases unless they intend to specifically make use of reentrant calls. This does mean that the language no longer has a one-to-one correspondence with the behaviour of the EVM itself. However, this allows inexperienced developers to simply reason about their own code without needing to worry about the intricacies of the underlying virtual machine. \\
+Existing approaches to reentrancy protection almost always involve adding specific permissions to the entrypoints of the contract. For example, standard practice in Solidity and Vyper is to add a \lstinline{nonReentrant} modifier to all external functions that do not need to be reentered into. If the default behaviour were simply inverted, we would then expect the entrypoints to be labelled with \lstinline{reentrant} modifiers where necessary. This is already a vast improvement -- any project that does not require reentrancy at all would by definition not have to add any such labels at all, while still being fully protected against reentrancy vulnerabilities.
+% TODO: can we estimate how many real-world vulnerabilities (or percentage) this would prevent?
+However, there are still some issues. A typical contract will not just make one external call, but make many different calls to various other contracts. It may well be the case that one of these external calls is expected to be reentrant, but that doesn't necessarily mean that it would be safe for \textit{every} external call to then call back into the original contract. Yet with granularity at the level of entrypoints, there is no way to restrict this without the user implementing their own logic on top of the existing protections. \\
+The other natural approach would be to decorate the call site with a \lstinline{reentrant} label of some kind. Again, this leads to a similar issue - while a reentrant call to one entrypoint might be safe, any other entrypoint might lead to a bug. Thus, it seems clear that being able to map from a specific external call to a specific entrypoint is necessary. \\
+When considering this from a  "safety-by-default" perspective, this also makes sense. The developer should be able to allow exactly the behaviour they need, without allowing any further reentrant calls to be made.
+
+\subsubsection{Our solution}
+We propose the following approach: All external calls are not able to reenter the contract by default. The annotation of reentrant behaviour is made at the \textit{external call} site, and must specify the \textit{exact} entrypoint which is intended to be reentered. \\
+For example, let's say we are making an external call to \lstinline{address} with calldata \lstinline{data}, and this call should be allowed to reenter the \lstinline{repay(...)} function. This could be specified as follows: \\
+\lstinline{EVM::reentrant_call(address, data, Self::repay)}. \\
+Contrast that to a regular external call, which would be: \\
+\lstinline{EVM::call(address, data)}. \\
+The syntax restricts reentrant call path to exactly what the developer would expect during normal execution. It does not impose much overhead -- we simply add a reference to the corresponding entrypoint, which the developer surely has in mind anyway. Additionally, the control flow becomes much more obvious: If we consider an auditor reading through the code line-by-line, it is immediately obvious that the above call might lead to a call back to the \lstinline{Self::repay} function. However, if only the entrypoint itself were annotated, then the transfer of control flow would not be clear.
+
+\subsection{Side Effects}
+
+One might say that the entire purpose of smart contracts is to produce side effects on a blockchain. Thus, considering side effects and their consequences is clearly a central part of reasoning about smart contract safety. This is especially relevant for smart contract auditors -- given a codebase they have never seen before, they are tasked with ruling out bugs and vulnerabilities within the project, often within only a few weeks. Thus, it is vital for them to be able to reduce the search space as much as possible. We have already shown how this can be done by removing all non-necessary reentrant calls, but the same logic is also valid for side effects. \\
+For illustration, consider something as simple as an expression like this: \\
+\lstinline{f(g(...), h(...))}
+What can we say about the side effects produced by this expression? Clearly, \lstinline{f} must be executed last, since it relies on the results of the other calls. However, the evaluation order of \lstinline{g} and \lstinline{h} is ambiguous. Of course, it depends on the language specification -- but ideally an audit-oriented language would prevent ambiguous syntax in the first place. \\
+In the specific cases of Solidity and Vyper, the situation is even worse: Not only is the syntax ambiguous, the evaluation order is actually \textit{undefined} in such cases! That is, it is up to the compiler to choose whatever order it deems most convenient. While the evaluation order is almost always left-to-right in practice, there are some exceptions, as demonstrated by the winning submission to the \textbf{Underhanded Solidity Contest 2022}. Of course, this specific behaviour is mostly limited to code that is designed to be misleading. However, such intentionally hidden bugs can be just as dangerous as unintended ones. \\
+% TODO: maybe use the linux xz bug as an example of intentional vulnerability hiding?
+In this work, we have chosen to focus specifically on \textit{state modifications}. They are likely the most relevant type of side effect for this application, but the principles used can be generalized to many other classes of side effects, such as logging (event emission), state reads, exceptions (reverting of transactions), etc. 
+
+\subsubsection{Our solution}
+Our guiding principles in this case were the following:
+\begin{itemize}
+	\item There should be no hidden or implicit side effects.
+	\item The ordering of effects must always be unambiguous.
+\end{itemize}
+Let's first look at an illustrating example.
+
+\begin{lstlisting}[language=Rust, style=boxed]
+contract Counter {
+  n: u256
+}
+impl Counter {
+  pub fn foo(self) {
+    let val_1 = self.n;
+
+    self.increment();
+
+    let val_2 = self.n;
+    assert(val_1 == val_2);
+  }
+  fn increment(self) {
+    self.n += 1;
+  }
+}
+\end{lstlisting}
+Here, we can see that there is a "hidden" side effect when calling \rustinline{self.increment()}. This may result in the incorrect assumption that \rustinline{self.n} does not change during this call. While it may be obvious in such a simple example, when considering internal function calls in general, it's not so simple. In a sense, the side effects are "hidden" inside the implementation details of the function being called, so we cannot know the possible side effects without first fully understanding its implementation. \\
+There are two issues at play here -- let's first consider the hidden nature of the side effect. If we want to avoid such cases, the developer must somehow specify that \rustinline{self.n} may change when \rustinline{self.increment()} is called. There are many potential ways of doing this, but for now let's simply surround the relevant statement with a \textit{permission block}:
+\begin{lstlisting}[language=Rust, style=boxed, firstnumber = 7]
+    modify(self.n) {
+      self.increment();
+    }
+\end{lstlisting}
+Note that we would not need this decoration for \textit{direct} side effects, such as the \rustinline{self.n += 1;} statement later on. This is because the side effect is visible in the syntax, it is not hidden. \\
+This still leaves us with the second issue -- when calling a function, we may not know all potential side effects that might be induced. The caller should not be required to understand the precise implementation details of a function. All relevant properties of a function should be provided by its signature. We can amend this by requiring the \rustinline{increment} function to declare that it might modify \rustinline{self.n}. That way, we encapsulate the information about potential side effects behind the signature of the function.
+\begin{lstlisting}[language=Rust, style=boxed, firstnumber = 13]
+  fn increment(self) modifies(self.n) {
+    self.n += 1;
+  }
+\end{lstlisting}
+In this case, we have used a different keyword for the function-level declarations as opposed to the block-level permissions. This is mostly to make clear that they do not mean the same thing -- \rustinline{modify} is used to annotate \textit{indirect} side effects occurring within the body of a function, while \rustinline{modifies} is an element of the function signature, declaring the possible side effects that may occur when the function is executed. Note that is likely that this choice of syntax would be confusing to new developers. However, the main purpose here is to demonstrate this as a proof of concept, the specific syntax could always be changed. \\
+
+\subsection{Side Effects in External Calls}
+
+There is one obvious limitation to dealing with side effects in this way -- what happens if we don't know the details of the function being called? This is an unavoidable situation when a contract is makes an external call into untrusted code. As soon as the control flow transfers to arbitrary code, the compiler is unable to enforce its own rules regarding side effects. This makes it impossible to enforce properties about \textit{external} state. In fact, it is even difficult to reason about \textit{internal} state at all, due to the possibility of reentrant calls. This is where our first core feature comes to the rescue.
+\begin{lstlisting}[language=Rust, style=boxed]
+contract Counter {
+  n: u256
+}
+impl Counter {
+  pub fn foo(self) modifies(self.n) {
+    let addr: Address = EVM::caller();
+    let data: Bytes = Bytes::empty();
+    modify(self.n) {
+      EVM::reentrant_call(addr, data, Self::increment);
+    }
+  }
+  pub fn increment(self) modifies(self.n) {
+    self.n += 1;
+  }
+}
+\end{lstlisting}
+As it turns out, we have all the information we need -- every external call site must specifically declare which functions it may reenter. As we saw before, every function must now declare its possible side effects. These two facts let us guarantee which internal side effects may happen during any external call \textit{at compile time}. This type of guarantee would not otherwise be possible without the use of sophisticated static analysis to rule out reentrancies. \\
+Thus, it becomes even simpler to reason about reentrancy vulnerabilities. Not only do we know exactly what entrypoint is being called, it is also immediately clear at the call site which state variables might be modified in the nested call, despite the external call executing arbitrary code. In fact, if the side effect declarations were extended to also include state reads, we could also much more easily rule out read-only reentrancy bugs as well.
+
+\subsection{Algebraic Data Types}
+
+
+
+\section{Discussion and Extensions}
+
+
