@@ -45,7 +45,18 @@
 %% needs it for some LaTeX snippets; remove/adapt the \lstset when you
 %% remove the template content.
 \usepackage{listings, listings-rust}
-\def\rustinline{\lstinline[language=Rust, style=boxed]}
+\usepackage{tcolorbox}
+\tcbuselibrary{listings}
+\definecolor{rustbg}{gray}{0.97}
+% The 'v' argument type safely handles verbatim content
+\DeclareTotalTCBox{\rustinline}{ v }{
+  on line,
+  colback=rustbg,
+  boxrule=0pt,
+  colframe=white,
+  boxsep=1pt,
+  left=2pt, right=2pt, top=1pt, bottom=1pt
+}{\lstinline[language=Rust, style=boxed]{#1}}
 
 %% [REC] Fancy character protrusion.  Must be loaded after all fonts.
 \usepackage{microtype}
