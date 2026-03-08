@@ -1,0 +1,69 @@
+contract StandardToken {
+    var balances: [Address: Int]
+    var allowed: [Address: [Address: Int]]
+    var totalSupply: Int = 0
+
+    event Transfer (from: Address, to: Address, value: Int)
+    event Approval (from: Address, to: Address, value: Int)
+}
+
+StandardToken :: (any) {
+  public init() {
+    balances = [:]
+    allowed = [:]
+  }
+
+  public func totalSupply() -> Int
+  {
+    return totalSupply
+  }
+
+  public func balanceOf(owner: Address) -> Int
+  {
+    return balances[owner]
+  }
+
+  public func allowance(owner: Address, spender: Address) -> Int
+  {
+    return allowed[owner][spender]
+  }
+}
+
+StandardToken :: caller <- (any) {
+  public func transfer(to: Address, value: Int) -> Bool
+    mutates (balances)
+  {
+    assert(balances[caller] >= value)
+    assert(to != 0x00000_00000_00000_00000_00000_00000_00000_00000)
+
+    balances[caller] -= value
+    balances[to] += value
+    emit Transfer(from: caller, to: to, value: value)
+
+    return true
+  }
+
+  public func approve(spender: Address, value: Int) -> Bool
+    mutates (allowed)
+  {
+    allowed[caller][spender] = value
+
+    emit Approval(from: caller, to: spender, value: value)
+    return true
+  }
+
+  public func transferFrom(from: Address, to: Address, value: Int) -> Bool
+    mutates (balances, allowed)
+  {
+    let allowance: Int = allowed[from][caller]
+    assert(balances[from] >= value && allowance >= value)
+    assert(to != 0x00000_00000_00000_00000_00000_00000_00000_00000)
+
+    balances[from] -= value
+    balances[to] += value
+    allowed[from][caller] -= value
+
+    emit Transfer(from, to, value)
+    return true
+  }
+}

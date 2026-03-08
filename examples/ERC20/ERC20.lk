@@ -1,0 +1,17 @@
+// From: https://github.com/logikon-lang/design
+
+declare Balance Array.
+declare Owner Uint.
+
+define isOwner (Addr) _ :- (= Addr Owner).
+
+define transfer (Uint Uint) -> Bool
+case (To Amount) _ :-
+    (= FromBalance (select Balance Sender))
+    (>= FromBalance Amount)
+    (= ToBalance (select Balance To))
+    (= Balance2 (store Balance Sender (- FromBalance Amount)))
+    (= Balance3 (store Balance2 To (+ ToBalance Amount)))
+    (prove (= (sum Balance3) (sum Balance)))
+    (update Balance Balance3).
+

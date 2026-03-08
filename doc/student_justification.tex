@@ -1,0 +1,191 @@
+
+\chapter{Justification (temp title)}
+\label{ch:justification}
+
+Core features:
+\begin{itemize}
+   \item Granular reentrancy protection
+   \item Side effect tracking
+   \item Algebraic data types
+   \item Safety by default
+   \item Traits instead of inheritance
+\end{itemize}
+
+\section{Algebraic Data Types}
+When modelling a state machine, it is standard practice to make use of regular enumeration types. However, such a value can only encode a single state, but not contain any auxiliary information. Standard workarounds include using "magic values", i.e., encoding state information via setting a field to a specific predetermined value, as well as defining a "kitchen-sink" struct, namely one that contains all fields for all states at the same time.
+
+For example, ERC20 tokens are specified such that the value \lstinline{u256::MAX} $= 2^{256}-1$ represents an unlimited allowance, whereas any other value represents an allowance equivalent to its actual quantity. Now, any read or write to such an allowance must be checked against this magic value, leading to a higher risk of developer mistakes.
+
+Instead, the allowance could be represented by an algebraic data type with two states, one which represents a specific finite amount and a second which represents the unlimited case. Then, the type system can enforce that the two states can never be mistaken for one another. Any time a value is read, the developer must handle both cases to satisfy the type checker. When a value is written, the developer must specify which state they intend to store.
+
+\subsection{Real-world example}
+Smart contracts often are used to model processes that function like state machines, for example voting processes. The widely-used OpenZeppelin contract library features a `Governor` contract, which models such functionality. Users can submit proposals, each one of which can be in one of eight different states. Depending on the state, a proposal needs to keep track of different values. For instance, while voting is active, it needs to store the deadline for the end of the voting period, as well as the actual vote counts. This is done using the following struct:  
+\begin{lstlisting}
+struct ProposalCore {
+    uint48 voteStart;
+    uint32 voteDuration;
+    bool executed;
+    bool canceled;
+    uint48 etaSeconds;
+}
+\end{lstlisting}
+Precisely which state the proposal is in is dictated by the values stored in the fields. For instance, if \lstinline{executed} is set to \lstinline{true}, then the proposal is in its executed state and all the other fields are irrelevant. However, if \lstinline{executed} and \lstinline{canceled} are both set to \lstinline{false}, then it depends on whether the current time is before \lstinline{voteStart}, before \lstinline{voteStart + voteDuration}, or after both. Thus, even just determining what state the proposal is in becomes exceedingly complex. Instead, it would be much simpler to describe a proposal starting from its states, and including the relevant fields for each state. This is precisely what can be done with an ADT, as well as letting the compiler reject reading field values that are not relevant to the current state. For clarity's sake, here is what such an ADT might look like, in Rust syntax:
+\begin{lstlisting}
+enum ProposalCore {
+    Pending {
+        voteStart: u64,
+    },
+    Active {
+        voteStart: u64,
+        voteDuration: u64,
+    },
+    Canceled,
+    Defeated,
+    Succeeded,
+    Queued {
+        etaSeconds: u64,
+    },
+    Expired,
+    Executed,
+}
+\end{lstlisting}
+This additionally demonstrates well that most fields are irrelevant for most states.
+
+
+
+\section{Reentrancy Protection}
+
+Reentrancy vulnerabilities are one of the most widely-known classes of smart contract bugs. Despite the fact that most smart contract developers are aware of their existence, reentrancies are to this day one of the most common vectors for real-world exploits. Thus, it is clear that the tools provided by the current development ecosystem are insufficient to systematically prevent this type of vulnerability.
+
+In fact, Solidity provides no built-in reentrancy protection tools at all, although its \textit{function modifier} feature provides a convenient way for developers to implement their own protection mechanism. Vyper on the other hand does provide opt-in reentrancy protection, although even this protection was exploited due to a compiler bug.\\
+Note that in both cases, the reentrancy checks are specific to their entrypoints. This means that if an entrypoint is not protected, any subsequent external call made by the contract could potentially reenter any of the contract's entrypoints. If an entrypoint \textit{is} protected, any external call made is still able to reenter all unprotected entrypoints of the contract.
+
+It is trivial for the compiler to infer what kind of check needs to be made based on the entrypoint, as well as only allowing specific external calls to reenter only their desired entrypoints.
+
+Only a minority of smart contracts even require reentrant calls for their core functionality, and even fewer of these require anything more than a single reentrant call path. As such, it seems prudent for most cases to disable reentrant calls by default, and allow the developer to individually define each required reentrant call path individually. If the core functionality of a smart contract must include reentrancies, the developer must consider the safety of such calls very carefully. Hence, it is little additional overhead to require them to specify each call path individually. In fact, it requires every necessary call path to be explicitly considered, so it is virtually impossible for an unexpected reentrant call to happen.
+
+\subsection{Real-world examples}
+
+There is an abundance of real-world reentrancy vulnerabilities, although many are either outdated or part of large projects and hence difficult to summarize succinctly.
+
+In October 2022, a new class of reentrancy vulnerability was first described -- named a read-only reentrancy. It was long the consensus that reentrancy bugs could only occur if the reentrant call itself modified the contract state. However, simply the fact that a read-only function might return an incorrect intermediate value can be enough to trigger a bug. Most cases of such bugs involve price oracles -- that is, contracts whose purpose is to estimate the current exchange price between two or more currencies. It is often possible to manipulate these oracles, although it is usually at great expense. In some cases, it is possible to manipulate the oracle price, then for the oracle to call back to the user. If a third-party contract now relies on the value returned by the oracle contract, it will read the manipulated price and be vulnerable to exploitation. Note that this would not be possible if the oracle contract didn't allow control flow to reenter the read-only function.
+
+In fact, the standard approach to reentrancy protection in Solidity does not even allow protecting read-only functions. Instead, developers must implement two separate checks, one for regular calls and one for read-only calls. Meanwhile, Vyper has extended its opt-in mechanisms to also include read-only functions as well.
+
+todo: reentrancy examples, compound ERC777
+
+
+\section{Side Effects}
+
+Note: "Side effect" is a very broad term that can be applied to many types of behaviour. In this case, we specifically discuss \textit{state modifications}, but the approach can be extended to almost any other kind of side effect, such as state reads, event emission, external calls, and so on.\\
+In a sense, one could say that the purpose of smart contracts is to cause side effects on the blockchain. In any case, it is quite important for developers to be aware of what side effects are happening in what order. In the first case, hidden or implicit side effects in the code can trigger unexpected behaviour, for example if one state change overwrites another, or if outdated values are used for further computations. In the second case, ambiguities in execution order can also lead to unexpected behaviour, although this is more limited to \textit{intentionally misleading} code, such as the winning submission in the \textbf{Underhanded Solidity Contest} in 2022.
+
+The evaluation order of expressions is explicitly stated to be undefined in Solidity, which means that a vast amount of deployed smart contracts are actually inducing undefined behaviour during the compilation process. Of course, this is almost always benign, but still represents a real threat. The Vyper documentation also explicitly states that the evaluation order of arguments to built-in functions is undefined. In other cases, the documentation does not specify anything at all.
+
+Keeping track of state modifications throughout the various call paths of a smart contract is also critical in the case of smart contract audits. If it were at a glance clear that an entrypoint cannot trigger certain state modifications, it would be much easier to rule out certain kinds of vulnerabilities, without having to manually go through each line of code. Additionally, if the syntax is explicitly clear about when side effects can happen, it is much less likely for developers to overlook unexpected state modifications. For example, Vyper only allows state variables to be modified via syntax such as \lstinline{self.xyz = 5}. Contrast this to solidity, where a statement such as \lstinline{xyz = 5;} does not make immediately clear whether it is modifying a local variable or a state variable of the contract.
+
+However, in both languages, the syntax of a function call does not explicitly distinguish whether or not state modifications can happen. When reading code, it is impossible to know what side effects might be caused by a function call without fully understanding the function's body. In a sense, this is equivalent to the concept of \textit{information hiding}, which means that a caller should not be reliant on the internals of a function, but instead only depend on its signature. Thus, we can require functions to explicitly state any possible modifications in their signatures.\\
+Although this significantly improves the situation, it doesn't entirely solve the problem -- if we see a function call like \lstinline{self.foo()}, it's still necessary to go and look at the signature of the function to determine its declared side effects. Again, this may allow unintended side effects to go unnoticed. If the developer is also required to explicitly allow the side effects at the \textit{call site}, then it becomes immediately clear at a glance what exactly is happening.
+
+\begin{lstlisting}
+pub fn foo(amount: u256) -> u256
+  modifies(self.last_amount)
+  modifies(self.n)
+{
+  self.last_amount = amount;
+
+  let count: u256;
+  modify(self.n) {
+    count = self.increment();
+  }
+
+  return count;
+}
+
+fn increment() -> u256
+  modifies(self.n)
+{
+  let result = self.n;
+  self.n += 1;
+  return result;
+}
+\end{lstlisting}
+
+As you can see in the above example, only the indirect side effect caused by the call to \lstinline{self.increment()} is required to be explicitly declared. In the case of \lstinline{self.last_amoount = amount}, it is already clear that the state is being modified without any surrounding declarations.
+
+\subsection{Side Effects in Reentrant Calls}
+
+This concept of side effect declaration also pairs very well with the granular reentrancy path declaration detailed earlier. In fact, without such a feature, it would be almost impossible to determine what side effects might occur to the contract state during an external call. However, if the external call must specify exactly which reentrancies are possible, then the compiler can treat the external call as though it were a regular function call, at least concerning side effects. Thus, the call site must be marked with the potential side effects that would be induced if the reentrant call is made.\\
+Note that we also require the possible reentrancy to be declared in the function signature. If the reentrant call itself may trigger further such calls, it should be clear at the call site that this is a possibility. However, it is unlikely for a real-world use case to strictly require nested reentrant calls, so it would also suffice to simply disallow further reentrant calls.
+
+\begin{lstlisting}
+\end{lstlisting}
+
+\noindent\begin{minipage}{.45\textwidth}
+\begin{lstlisting}[caption=Ours,frame=tlrb]{Name}
+pub fn foo(
+  x: u256
+) -> u256
+  modifies(self.val)
+  reenters(Self::bar)
+{
+  self.val = x;
+  modify(self.val) {
+    EVM::reentrant_call(
+      Self::bar,
+      address,
+      data
+    );
+  }
+  return self.val;
+}
+
+pub fn bar()
+  modifies(self.val)
+{
+   self.val += 1;
+}
+\end{lstlisting}
+\end{minipage}\hfill
+\begin{minipage}{.45\textwidth}
+\begin{lstlisting}[caption=Solidity,frame=tlrb]{Name}
+function foo(uint x)
+  public
+  returns (uint)
+{
+    value = newValue;
+    address.call(data);
+    return value;
+}
+
+function bar()
+  public
+{
+    value += 1;
+}
+\end{lstlisting}
+\end{minipage}
+
+Here, it is again immediately obvious that the new value written to the state variable may be overwritten by the reentrant call. Contrast that to the equivalent Solidity code, where it is not even clear that a reentrant call is possible in the first place, let alone what side effects it may cause. In fact, any of the existing languages for EVM would be equivalent, since their reentrancy protections are declared at the entrypoints, not the call sites.\\
+Of course, this example also makes clear that the strict requirements for side effect declarations result in verbose code. However, we believe that this is a trade-off which is worth the additional overhead, since the stakes are so high. 
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
