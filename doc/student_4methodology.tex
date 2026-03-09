@@ -121,15 +121,69 @@ impl Counter {
   }
 }
 \end{lstlisting}
-As previously mentioned, we want to avoid hidden side effects in the code. There is another hidden effect at play here -- from the perspective of the \rustinline{foo} function, it is not clear that it may be called in a reentrant context. This is an especially dangerous situation, since by definition there will be a possible overlap between the effects produced by the reentrant call and those in the top-level call. Even if the reentrant call were made to some other entrypoint, it is still vital to carefully consider what exactly may happen during the reentrant call. Therefore, we treat reentrant calls the same way as the state modifications -- every function signature must declare its possible reentrancies, and any indirect reentrancies within a statement must be surrounded by a permission block. The overhead induced by this requirement is quite small compared to the state modifications, since reentrant calls are much less common. But we will discuss the overhead of the effect annotations in more detail later on. \\
+As previously mentioned, we want to avoid hidden side effects in the code. There is another hidden effect at play here -- from the perspective of the \rustinline{foo} function, it is not clear that it may be called in a reentrant context. This is an especially dangerous situation, since by definition there will be a possible overlap between the effects produced by the reentrant call and those in the top-level call. Even if the reentrant call were made to some other entrypoint, it is still vital to carefully consider what exactly may happen during the reentrant call. Therefore, we treat reentrant calls the same way as the state modifications -- every function signature must declare its possible reentrancies, and any indirect reentrancies within a statement must be surrounded by a permission block. \\
+\begin{lstlisting}[language=Rust, style=boxed, firstnumber=5]
+  pub fn foo(self) reenters(Self::foo) {
+    let val = self.n;
+    reenter(Self::foo) { self.bar(); }
+    self.n += 1;
+  }
+  pub fn bar(self) reenters(Self::foo) {
+    EVM::reentrant_call(addr, data, Self::foo);
+  }
+\end{lstlisting}
+The overhead induced by this requirement is quite small compared to the state modifications, since reentrant calls are much less common. But we will discuss the overhead of the effect annotations in more detail later on. \newline
 There is one edge case we have neglected to address so far. How can we deal with multiply reentrant calls? What about a recursive function reentrantly calling itself? In general, this is an exceedingly rare occurrence. In fact, it seems unlikely for any use case to require nested reentrancies at all. Thus, it would be reasonable to simply disallow this case from occurring at all. Even so, there is no real barrier to reasoning about nested reentrancies with the same logic we have used so far. The caller of such a function must simply declare all the possible further reentrancies, which may include the calling function itself.
 
 \subsection{Algebraic Data Types}
 
 TODO
 
-\section{Discussion and Extensions}
+\section{Discussion}
+ 
+To briefly summarize, the three core features we propose are:
+\begin{itemize}
+  \item Specifying exact call paths for reentrant calls.
+  \item Explicit side effects (state modifications, reentrant calls).
+  \item Algebraic Data Types
+\end{itemize}
 
-Why does this make sense?
+There are several ways these features could be made available to developers as conveniently as possible. The most obvious solution would be to modify an existing widely-used language such as Solidity or Vyper. However, this would present significant challenges, as we will see in a moment. Most other projects targeting EVM are significantly out of date, and often have their own unique feature sets which do not compose well with ours. Additionally, there is little benefit in modifying a language that is not already being used, since the language will have been designed with other goals in mind. \\
+Unfortunately, that seems to indicate the necessity of designing a new language which specifically fits our desired features. In the interest of making it easy to adopt, it should be based closely on an existing well-known general-purpose programming language. As you may have surmised given the code examples we have given so far, the language chosen in this case is Rust. \\
+
+\subsection{Retrofitting Solidity}
+Solidity is the oldest, most widely used programming language for EVM. As such, there is also a large incentive not to break backwards compatibility. While there have been breaking changes in the past, they are quite rare. In fact, since the release of Solidity v0.8 in December 2020, no more breaking changes have been made at all. \\
+
+\paragraph{ADTs}
+Adapting Solidity to allow ADTs would not present too much of a challenge. Assuming they were handled similarly to Rust, one could simply extend the concept of a Solidity \solinline{enum} to include fields. Although one might have to reconsider the syntax of a \solinline{switch} statement, or alternatively add some new syntax to enable variable bindings when pattern matching. Of course, great care needs to be taken to ensure backwards compatibility not only in the syntax, but also in the ABI encoding of types and function calls, since newly deployed contracts should still be able to interact with all existing contracts.
+
+\paragraph{Reentrant Call Paths}
+As long as we only require reentrant external calls to declare their corresponding entrypoints, this is again just a small syntactic change to the language. However, the \rustinline{reenters(...)} declaration in function signatures does not play well with Solidity's contract inheritance and virtual functions. This is not necessarily a deal-breaker, but does present some real obstacles. For example, how could one define an overridable function in an abstract contract, such that it is allowed to reenter a function in an implementing contract? There are solutions, but they are all work-arounds of some kind. Additionally, one would have to be able to differentiate between overloaded functions, and between the functions defined on the current contract versus those on its super-types (i.e. \solinline{reenters(super.foo)} vs. \solinline{foo}). \\
+What's more, Solidity also features function pointers. One would either have to prevent creating pointers to reentrant functions entirely, or extend the function pointer type to also include potential reentrancies. However, it would not be generalizable -- if we wanted to pass \solinline{function() reenters(this.foo)} and \solinline{function() reenters(this.bar)} as arguments to the same function, we would need to be able to generalize over the function to be re-entered. Solidity has no notion of generics or type variables, so this would not be a natural extension to the language.
+
+\paragraph{Effects}
+Similar to the reentrancy annotations, the main obstacles here are provided by contract inheritance, as well as function pointers. The difficult questions that would need to be answered are:
+\begin{itemize}
+  \item How can an abstract contract specify a modification to a state variable of the implementing contract?
+  \item How can we extend the notion of function pointers to naturally include their effects?
+\end{itemize}
+Again, we believe these to be prohibitively large obstacles to extending Solidity with our proposed features.
+
+ \subsection{Retrofitting Vyper}
+The design of the Vyper language is much simpler by comparison. It is closely based on Python, but intentionally restricts its feature set so as to remain as simple as reasonably possible. Due to its widespread use, the language is similarly tied up with the responsibility of maintaining backwards compatibility, although less so than Solidity. Thanks to the simplicity of the language, there are fewer obstacles to implementing our proposed features in the language. However, the philosophy behind Vyper (and Python) is more about making the language easy to use, and reducing developer overhead. For that reason, it seems unlikely that such features would ever be adopted by the Vyper compiler team. Even so, we will briefly discuss the viability of each feature in detail.
+
+\subsubsection{ADTs}
+There is no real barrier to implementing ADTs and pattern matching in Vyper, since Python already has support for such types. One slight issue is that Vyper does have reference types, but when passing these types to functions they are implicitly copied. This incentivizes less abstraction and shallower call hierarchies. As such, top-level code that involves many ADTs would be littered with pattern matching case distinctions, rather than "hiding" such functionality within functions defined on the ADT itself. This makes the feature much less attractive to use, especially since much of Vyper's attractiveness is provided by its simplicity and straight-forward code.
+
+\subsubsection{Reentrant Call Paths}
+Although Vyper does not prevent reentrancies by default, it is likely for this to be changed in the near future. However, due to the desire for simplicity, this will be handled via a \lstinline{@reentrant} modifier on the entrypoints. For this reason, it again seems like the restrictive nature of our feature set is not a good fit for Vyper, even though there are not necessarily significant barriers preventing such an implementation.
+
+\subsubsection{Effects}
+Vyper provides modularity through composition. This avoids the problematic function overriding and overloading we encountered with Solidity. The language also does not feature function pointers, which was the other major road-block. Thus, the annotation of side effects would actually fit quite well into the language design, especially since it already has annotations for function declarations. However, \textit{requiring} the side effect annotations to be provided by the developer would go against the language's philosophy, and present a huge breaking change to all existing code. Thus, it would be exceedingly unlikely for this kind of change to be adopted or well-received by existing users of the language.
+
+\subsection{Why Rust?}
+
+
+asdf
 
 

@@ -44,19 +44,26 @@
 %% [OPT] Fancy package for source code listings.  The template text
 %% needs it for some LaTeX snippets; remove/adapt the \lstset when you
 %% remove the template content.
-\usepackage{listings, listings-rust}
+\usepackage{listings, listings-rust, listings-solidity}
 \usepackage{tcolorbox}
 \tcbuselibrary{listings}
-\definecolor{rustbg}{gray}{0.97}
-% The 'v' argument type safely handles verbatim content
+\definecolor{codebg}{gray}{0.97}
 \DeclareTotalTCBox{\rustinline}{ v }{
   on line,
-  colback=rustbg,
+  colback=codebg,
   boxrule=0pt,
   colframe=white,
   boxsep=1pt,
   left=2pt, right=2pt, top=1pt, bottom=1pt
 }{\lstinline[language=Rust, style=boxed]{#1}}
+\DeclareTotalTCBox{\solinline}{ v }{
+  on line,
+  colback=codebg,
+  boxrule=0pt,
+  colframe=white,
+  boxsep=1pt,
+  left=2pt, right=2pt, top=1pt, bottom=1pt
+}{\lstinline[language=Solidity, style=boxed]{#1}}
 
 %% [REC] Fancy character protrusion.  Must be loaded after all fonts.
 \usepackage{microtype}

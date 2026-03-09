@@ -116,9 +116,6 @@ As you can see in the above example, only the indirect side effect caused by the
 This concept of side effect declaration also pairs very well with the granular reentrancy path declaration detailed earlier. In fact, without such a feature, it would be almost impossible to determine what side effects might occur to the contract state during an external call. However, if the external call must specify exactly which reentrancies are possible, then the compiler can treat the external call as though it were a regular function call, at least concerning side effects. Thus, the call site must be marked with the potential side effects that would be induced if the reentrant call is made.\\
 Note that we also require the possible reentrancy to be declared in the function signature. If the reentrant call itself may trigger further such calls, it should be clear at the call site that this is a possibility. However, it is unlikely for a real-world use case to strictly require nested reentrant calls, so it would also suffice to simply disallow further reentrant calls.
 
-\begin{lstlisting}
-\end{lstlisting}
-
 \noindent\begin{minipage}{.45\textwidth}
 \begin{lstlisting}[caption=Ours,frame=tlrb]{Name}
 pub fn foo(
