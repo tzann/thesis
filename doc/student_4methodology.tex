@@ -173,7 +173,7 @@ Again, we believe these to be prohibitively large obstacles to extending Solidit
 The design of the Vyper language is much simpler by comparison. It is closely based on Python, but intentionally restricts its feature set so as to remain as simple as reasonably possible. Due to its widespread use, the language is similarly tied up with the responsibility of maintaining backwards compatibility, although less so than Solidity. Thanks to the simplicity of the language, there are fewer obstacles to implementing our proposed features in the language. However, the philosophy behind Vyper (and Python) is more about making the language easy to use, and reducing developer overhead. For that reason, it seems unlikely that such features would ever be adopted by the Vyper compiler team. Even so, we will briefly discuss the viability of each feature in detail.
 
 \subsubsection{ADTs}
-There is no real barrier to implementing ADTs and pattern matching in Vyper, since Python already has support for such types. One slight issue is that Vyper does have reference types, but when passing these types to functions they are implicitly copied. This incentivizes less abstraction and shallower call hierarchies. As such, top-level code that involves many ADTs would be littered with pattern matching case distinctions, rather than "hiding" such functionality within functions defined on the ADT itself. This makes the feature much less attractive to use, especially since much of Vyper's attractiveness is provided by its simplicity and straight-forward code.
+There is no real barrier to implementing ADTs and pattern matching in Vyper, since Python already has support for such types. One slight issue is that Vyper does have reference types, but when passing these types to functions they are implicitly copied. This incentivizes less abstraction and shallower call hierarchies. As such, top-level code that involves many ADTs would be littered with pattern matching case distinctions, rather than "hiding" such functionality within methods defined on the type itself. This makes the feature much less attractive to use, especially since many of Vyper's advantages are provided by its simplicity and straight-forward code.
 
 \subsubsection{Reentrant Call Paths}
 Although Vyper does not prevent reentrancies by default, it is likely for this to be changed in the near future. However, due to the desire for simplicity, this will be handled via a \lstinline{@reentrant} modifier on the entrypoints. For this reason, it again seems like the restrictive nature of our feature set is not a good fit for Vyper, even though there are not necessarily significant barriers preventing such an implementation.
@@ -181,9 +181,23 @@ Although Vyper does not prevent reentrancies by default, it is likely for this t
 \subsubsection{Effects}
 Vyper provides modularity through composition. This avoids the problematic function overriding and overloading we encountered with Solidity. The language also does not feature function pointers, which was the other major road-block. Thus, the annotation of side effects would actually fit quite well into the language design, especially since it already has annotations for function declarations. However, \textit{requiring} the side effect annotations to be provided by the developer would go against the language's philosophy, and present a huge breaking change to all existing code. Thus, it would be exceedingly unlikely for this kind of change to be adopted or well-received by existing users of the language.
 
-\subsection{Why Rust?}
+\subsection{Base Language}
+As demonstrated by Vyper, it can be advantageous to design a niche language closely on an existing general purpose language, so as to ease adoption for new developers. Initially, we had planned to design a functional language, likely syntactically similar to Haskell. However, the decision was made early on to instead make the language imperative, since functional languages tend to be more difficult to learn and are not widely used. Rust was the next natural choice, since it features ADTs and pattern matching natively. In fact, there are not many mainstream imperative languages that do support pattern matching. The somewhat low-level nature of Rust also is a benefit, since we do want to give the developer control over what operations are happening, most notably memory allocations and storage reads / writes. It is of course still possible to build up many layers of abstraction, for example by defining methods on user-defined types or using traits.
 
 
-asdf
+
+
+
+
+
+
+
+
+
+
+
+
+
+
 
 
