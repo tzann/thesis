@@ -1,34 +1,155 @@
 \chapter{Evaluation}\label{ch:evaluation}
 
-Core features:
-\begin{itemize}
-   \item Granular reentrancy protection
-   \item Side effect tracking
-   \item Algebraic data types
-   \item Safety by default
-   \item Traits instead of inheritance
-\end{itemize}
+In this chapter we will briefly reintroduce the language design concepts we discussed earlier and see how they fit into simple examples of real-world contracts. These example contracts stem from a widely-used smart contract library maintained by OpenZeppelin. They often only implement a very specific functionality and therefore usually remain quite small and easy to understand. We have reimplemented the identical functionality in our language to compare and discuss the differences. \\
+Afterwards, we will look at some vulnerabilities that were exploited in well-known contracts. After seeing the same functionality reimplemented in our language, we will demonstrate the difficulty of writing code that is vulnerable in the same fashion. Of course, we cannot address all types of vulnerabilities, merely the ones we set out to solve initially.
+
+%Core features:
+%\begin{itemize}
+%   \item Granular reentrancy protection
+%   \item Side effect tracking
+%   \item Algebraic data types
+%   \item Safety by default
+%   \item Traits instead of inheritance
+%\end{itemize}
 
 \section{Algebraic Data Types}
 When modelling a state machine, it is standard practice to make use of regular enumeration types. However, such a value can only encode a single state, but not contain any auxiliary information. Standard workarounds include using "magic values", i.e., encoding state information via setting a field to a specific predetermined value, as well as defining a "kitchen-sink" struct, namely one that contains all fields for all states at the same time.
 
-For example, ERC20 tokens are specified such that the value \lstinline{u256::MAX} $= 2^{256}-1$ represents an unlimited allowance, whereas any other value represents an allowance equivalent to its actual quantity. Now, any read or write to such an allowance must be checked against this magic value, leading to a higher risk of developer mistakes.
+For example, ERC20 tokens are specified such that the value \rustinline{u256::MAX} $= 2^{256}-1$ represents an unlimited allowance, whereas any other value represents an allowance equivalent to its actual quantity. Now, any read or write to such an allowance must be checked against this magic value, leading to a higher risk of developer mistakes. Here, we compare the "standard" implementation of the ERC20 \rustinline{transferFrom} function, as specified by the ERC20 token standard:
 
-Instead, the allowance could be represented by an algebraic data type with two states, one which represents a specific finite amount and a second which represents the unlimited case. Then, the type system can enforce that the two states can never be mistaken for one another. Any time a value is read, the developer must handle both cases to satisfy the type checker. When a value is written, the developer must specify which state they intend to store.
+\begin{changemargin}{-0.7cm}{-0.7cm} 
+\noindent\begin{minipage}[t]{.5\textwidth + 0.7cm}
+\begin{lstlisting}[caption=Solidity, language=Solidity, style=boxedSol, basicstyle=\ttfamily\scriptsize]
+contract ERC20 {
+	mapping(address => uint256) private _balances;
+	mapping(address =>
+		mapping(address =>
+			uint256)) private _allowances;
 
-\subsection{Real-world example}
-Smart contracts often are used to model processes that function like state machines, for example voting processes. The widely-used OpenZeppelin contract library features a `Governor` contract, which models such functionality. Users can submit proposals, each one of which can be in one of eight different states. Depending on the state, a proposal needs to keep track of different values. For instance, while voting is active, it needs to store the deadline for the end of the voting period, as well as the actual vote counts. This is done using the following struct:  
-\begin{lstlisting}
-struct ProposalCore {
-    uint48 voteStart;
-    uint32 voteDuration;
-    bool executed;
-    bool canceled;
-    uint48 etaSeconds;
+	function transferFrom(
+		address from,
+		address to,
+		uint256 value
+	) external returns (bool) {
+		require(from != address(0));
+		require(to != address(0));
+
+		address spender = msg.sender;
+		uint256 amount = _allowances[from][spender];
+		if (amount < type(uint256).max) {
+			_allowances[from][spender] = amount - value;
+		}
+
+		execute_transfer(from, to, value);
+		return true;
+	}
 }
 \end{lstlisting}
-Precisely which state the proposal is in is dictated by the values stored in the fields. For instance, if \lstinline{executed} is set to \lstinline{true}, then the proposal is in its executed state and all the other fields are irrelevant. However, if \lstinline{executed} and \lstinline{canceled} are both set to \lstinline{false}, then it depends on whether the current time is before \lstinline{voteStart}, before \lstinline{voteStart + voteDuration}, or after both. Thus, even just determining what state the proposal is in becomes exceedingly complex. Instead, it would be much simpler to describe a proposal starting from its states, and including the relevant fields for each state. This is precisely what can be done with an ADT, as well as letting the compiler reject reading field values that are not relevant to the current state. For clarity's sake, here is what such an ADT might look like, in Rust syntax:
-\begin{lstlisting}
+\end{minipage}
+\begin{minipage}[t]{.5\textwidth + 0.7cm}
+\begin{lstlisting}[caption=Ours, language=Rust, style=boxed, basicstyle=\ttfamily\scriptsize]
+contract ERC20 {
+	balances: HashMap<Address, u256>,
+	allowances: HashMap<Address,
+		HashMap<Address, Allowance>>,
+}
+impl ERC20 {
+	pub fn transfer_from(self,
+		from: Address,
+		to: Address,
+		value: u256
+	) -> bool {
+		assert(from != Address::ZERO);
+		assert(to != Address::ZERO);
+
+		let spender = EVM::caller();
+		self.allowances[from][spender].spend(value);
+		self.execute_transfer(from, to, value);
+		return true;
+	}
+}
+enum Allowance {
+	Amount(u256),
+	Unlimited,
+}
+impl Allowance {
+	fn spend(self, value: u256) {
+		match self {
+			Allowance::Amount(amount) => {
+				amount -= value;
+			}
+			Allowance::Unlimited => (),
+		}
+	}
+}
+\end{lstlisting}
+\end{minipage}
+\footnotesize
+\emph{Note: In both cases, no underflow check is necessary, because both compilers insert overflow checks on arithmetic operations by default. However, it may sometimes be preferable to check manually in order to produce a more specific error message.}
+\end{changemargin}
+
+Defining an ADT in such a manner provides two distinct advantages: First, it becomes much simpler to separate the underlying logic (reducing the allowance by the spent amount) from the contract's functionality (transferring tokens). Second, the type system now makes it impossible to misinterpret an unlimited allowance as a finite one, whereas in Solidity the developer needs to actively remember to check for the "magic value" every time they use an allowance. \\
+Of course, in such a simple example the benefits are dampened by the additional overhead induced by the additional code needed to define of the ADT. However, in more complex cases the advantage becomes much clearer. Furthermore, smart contracts often model processes that can be easily represented by a state machine. This is the perfect application for an ADT, as we will see in the next example.
+
+\subsection{Real-world example}
+The widely-used OpenZeppelin contract library features a \solinline{Governor} contract, which models voting processes. Users can submit proposals, each one of which can be in one of eight different states. Depending on the state, a proposal needs to keep track of different values. For instance, while voting is active, it needs to store the deadline for the end of the voting period, as well as the actual vote counts. This data is stored in the \solinline{ProposalCore} struct. Precisely which \solinline{ProposalState} the proposal is currently in is dictated by the values stored in the fields. The logic of determining this state is implemented by the \solinline{state(...)} function.
+ 
+\begin{lstlisting}[language=Solidity, style=boxedSol]
+\end{lstlisting}
+
+\noindent\begin{minipage}[t]{.3\textwidth}
+\begin{lstlisting}[caption=Proposal State Data, language=Solidity, style=boxedSol, basicstyle=\ttfamily\small]
+struct ProposalCore {
+	uint48 voteStart;
+	uint32 voteDuration;
+	bool executed;
+	bool canceled;
+	uint48 etaSeconds;
+}
+enum ProposalState {
+	Pending,
+	Active,
+	Canceled,
+	Defeated,
+	Succeeded,
+	Queued,
+	Expired,
+	Executed
+}
+\end{lstlisting}
+\end{minipage}
+\begin{minipage}[t]{.7\textwidth}
+\begin{lstlisting}[caption=Proposal State Logic, language=Solidity, style=boxedSol, basicstyle=\ttfamily\small]
+function state(uint256 id) returns (ProposalState) {
+	if (proposals[id].executed) {
+		return ProposalState.Executed;
+	}
+	if (proposals[id].canceled) {
+		return ProposalState.Canceled;
+	}
+	
+	uint256 start = proposals[id].voteStart;
+	uint256 now = clock();
+	if (start >= now) {
+		return ProposalState.Pending;
+	}
+	
+	uint256 deadline = start + proposals[id].voteDuration;
+	if (deadline >= now) {
+		return ProposalState.Active;
+	} else if (!quorumReached(id) || !voteSucceeded(id)) {
+		return ProposalState.Defeated;
+	} else if (proposals[id].etaSeconds == 0) {
+		return ProposalState.Succeeded;
+	} else {
+		return ProposalState.Queued;
+	}
+}
+\end{lstlisting}
+\end{minipage}
+
+Recall that this is a widely-used \textit{library contract}, not just some one-off project! As you can see, even just determining what state the proposal is in becomes exceedingly complex. Instead, it would be much simpler to describe a proposal starting from its states, then only include the fields relevant to each state. This is precisely what can be done with an ADT. As an additional benefit, the compiler rejects reading field values that are not relevant to the current state. For some additional clarity, here is what such an ADT might look like, in Rust syntax. It also demonstrates well that most fields are irrelevant for most states.
+\begin{lstlisting}[language=Rust, style=boxed]
 enum ProposalCore {
     Pending {
         voteStart: u64,
@@ -47,9 +168,6 @@ enum ProposalCore {
     Executed,
 }
 \end{lstlisting}
-This additionally demonstrates well that most fields are irrelevant for most states.
-
-
 
 \section{Reentrancy Protection}
 
@@ -85,7 +203,7 @@ Keeping track of state modifications throughout the various call paths of a smar
 However, in both languages, the syntax of a function call does not explicitly distinguish whether or not state modifications can happen. When reading code, it is impossible to know what side effects might be caused by a function call without fully understanding the function's body. In a sense, this is equivalent to the concept of \textit{information hiding}, which means that a caller should not be reliant on the internals of a function, but instead only depend on its signature. Thus, we can require functions to explicitly state any possible modifications in their signatures.\\
 Although this significantly improves the situation, it doesn't entirely solve the problem -- if we see a function call like \lstinline{self.foo()}, it's still necessary to go and look at the signature of the function to determine its declared side effects. Again, this may allow unintended side effects to go unnoticed. If the developer is also required to explicitly allow the side effects at the \textit{call site}, then it becomes immediately clear at a glance what exactly is happening.
 
-\begin{lstlisting}
+\begin{lstlisting}[language=Rust, style=boxed]
 pub fn foo(amount: u256) -> u256
   modifies(self.last_amount)
   modifies(self.n)
@@ -117,7 +235,7 @@ This concept of side effect declaration also pairs very well with the granular r
 Note that we also require the possible reentrancy to be declared in the function signature. If the reentrant call itself may trigger further such calls, it should be clear at the call site that this is a possibility. However, it is unlikely for a real-world use case to strictly require nested reentrant calls, so it would also suffice to simply disallow further reentrant calls.
 
 \noindent\begin{minipage}{.45\textwidth}
-\begin{lstlisting}[caption=Ours,frame=tlrb]{Name}
+\begin{lstlisting}[caption=Ours, language=Rust, style=boxed]{Name}
 pub fn foo(
   x: u256
 ) -> u256
@@ -143,7 +261,7 @@ pub fn bar()
 \end{lstlisting}
 \end{minipage}\hfill
 \begin{minipage}{.45\textwidth}
-\begin{lstlisting}[caption=Solidity,frame=tlrb]{Name}
+\begin{lstlisting}[caption=Solidity, language=Solidity, style=boxedSol]{Name}
 function foo(uint x)
   public
   returns (uint)

@@ -24,12 +24,12 @@
 , morekeywords={break, continue, else, for, if, in, loop, match, return, while}  % control flow keywords
 , morekeywords={as, const, let, move, mut, ref, static}  % in the context of variables
 , morekeywords={abi, contract, dyn, enum, function, impl, struct, trait, type, union, use, where}  % in the context of declarations
-, morekeywords={crate, extern, mod, public, private, external, super, is}  % in the context of modularisation
+, morekeywords={crate, extern, mod, public, private, view, pure external, super, is}  % in the context of modularisation
 , morekeywords={unsafe, unchecked}  % markers
 , morekeywords={abstract, alignof, become, box, do, final, macro, offsetof, override, priv, proc, pure, sizeof, typeof, unsized, virtual, yield} %
 , morekeywords={after, alias, apply, auto, byte, case, copyof, default, define, final, implements, in, inline, let, macro, match, mutable, null, of, partial, promise, reference, relocatable, sealed, sizeof, static, supports, switch, typedef, typeof, var}  % reserved identifiers
 %
-, morekeywords=[2]{bool, char, int8, int16, int32, int64, string, bytes, uint8, uint16, uint32, uint64, uint, int128, uint128, int256, uint256, wei, gwei, ether, seconds, minutes, hours, days, weeks}  % primitive types
+, morekeywords=[2]{address, mapping, bool, char, int8, int16, int32, int64, string, bytes, uint8, uint16, uint32, uint48, uint64, uint, int128, uint128, int256, uint256, wei, gwei, ether, seconds, minutes, hours, days, weeks}  % primitive types
 %
 , morekeywords=[3]{abi, blockhash, block, msg, gasleft, tx}  % prelude value constructors
 %
@@ -50,9 +50,26 @@
 , showspaces=false%
 , showtabs=false%
 , showstringspaces=true%
+, tabsize = 2%
 }%
 
 \lstdefinestyle{boxedSol}{
+  style=colouredSolidity%
+, numbers=left%
+, firstnumber=auto%
+, numberblanklines=true%
+, frame=trbL%
+, numberstyle=\tiny%
+, frame=leftline%
+, numbersep=7pt%
+, framesep=5pt%
+, framerule=10pt%
+, xleftmargin=15pt%
+, backgroundcolor=\color[gray]{0.97}%
+, rulecolor=\color[gray]{0.90}%
+} %
+
+\lstdefinestyle{boxedSolTiny}{
   style=colouredSolidity%
 , numbers=left%
 , firstnumber=auto%
