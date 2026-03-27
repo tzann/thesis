@@ -31,6 +31,7 @@ contract ERC20 {
         return _allowances[owner][spender];
     }
 
+    // modifies _allowances[owner][spender]
     function approve(
         address spender,
         uint256 value
@@ -44,6 +45,7 @@ contract ERC20 {
         return true;
     }
 
+    // modifies _balances[from], _balances[to]
     function transfer(address to, uint256 value) external returns (bool) {
         require(to != address(0), ERC20InvalidReceiver(address(0)));
 
@@ -53,6 +55,7 @@ contract ERC20 {
         return true;
     }
 
+    // modifies _allowances[from][spender], _balances[from], _balances[to]
     function transferFrom(
         address from,
         address to,
@@ -77,6 +80,7 @@ contract ERC20 {
         return true;
     }
 
+    // modifies _balances[from], _balances[to]
     function _transfer(address from, address to, uint256 value) internal {
         uint256 fromBalance = _balances[from];
         require(
@@ -90,6 +94,7 @@ contract ERC20 {
         emit Transfer(from, to, value);
     }
 
+    // modifies _balances[account], totalSupply
     function _mint(address account, uint256 value) internal {
         require(account != address(0), ERC20InvalidReceiver(address(0)));
 
@@ -99,6 +104,7 @@ contract ERC20 {
         emit Transfer(address(0), account, value);
     }
 
+    // modifies _balances[account], totalSupply
     function _burn(address account, uint256 value) internal {
         require(account != address(0), ERC20InvalidSender(address(0)));
 

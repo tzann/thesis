@@ -8,10 +8,6 @@ interface ERC20 {
     function transferFrom(address sender, address receiver, uint256 amount) external returns (bool);
 }
 
-struct A {
-    uint256 asdf;
-}
-
 contract Exchange {
     // Tokens and corresponding balances
     ERC20 public immutable underlyingA;
@@ -65,6 +61,7 @@ contract Exchange {
         return _trade(amountIn, inverseDirection);
     }
 
+    // modifies(balanceA, balanceB, accruedLiquiditySinceLastClaim)
     function _trade(uint256 amountIn, bool inverseDirection)
         internal
         returns (uint256)
@@ -92,6 +89,7 @@ contract Exchange {
         ) = calcTrade(receivedAmount, balanceFrom, balanceTo, fee);
 
         // Side effects: 1 storage read, 3 storage writes
+        // modify(balanceA, balanceB, accruedLiquidity)
         writeBalances(newFromBalance, newToBalance, liquidityIncrease, inverseDirection);
 
         // Side effects: May revert, 1 non-reentrant call
@@ -126,6 +124,7 @@ contract Exchange {
         return (underlyingFrom, underlyingTo, balanceFrom, balanceTo, fee);
     }
 
+    // modifies(balanceA, balanceB, accruedLiquiditySinceLastClaim)
     function writeBalances(uint256 newFromBalance, uint256 newToBalance, uint256 liquidityIncrease, bool inverseDirection)
         internal
     {

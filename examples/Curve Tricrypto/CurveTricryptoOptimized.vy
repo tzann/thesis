@@ -282,7 +282,7 @@ def __init__(
 
 # ------------------- Token transfers in and out of the AMM ------------------
 
-
+# modifies(balances[_coin_idx])
 @internal
 def _transfer_in(
     _coin_idx: uint256,
@@ -334,7 +334,7 @@ def _transfer_in(
     self.balances[_coin_idx] += dx
     return dx
 
-
+# modifies(self.balances[_coin_idx])
 @internal
 def _transfer_out(_coin_idx: uint256, _amount: uint256, receiver: address):
     """
@@ -360,6 +360,8 @@ def _transfer_out(_coin_idx: uint256, _amount: uint256, receiver: address):
 # -------------------------- AMM Main Functions ------------------------------
 
 
+# modifies(balances[j], balances[i])
+# modifies(xcp_profit, D, virtual_price, last_xcp, price_scale_packed, price_oracle_packed, cached_xcp_oracle, last_prices_packed, future_A_gamma_time)
 @external
 @nonreentrant("lock")
 def exchange(
@@ -379,6 +381,7 @@ def exchange(
     @return uint256 Amount of tokens at index j received by the `receiver
     """
     # _transfer_in updates self.balances here:
+    # modify(balances[i])
     dx_received: uint256 = self._transfer_in(
         i,
         dx,
@@ -387,6 +390,7 @@ def exchange(
     )
 
     # No ERC20 token transfers occur here:
+    # modify(xcp_profit, D, virtual_price, last_xcp, price_scale_packed, price_oracle_packed, cached_xcp_oracle, last_prices_packed, future_A_gamma_time)
     out: uint256[3] = self._exchange(
         i,
         j,
@@ -396,6 +400,7 @@ def exchange(
 
     # _transfer_out updates self.balances here. Update to state occurs before
     # external calls:
+    # modify(balances[j])
     self._transfer_out(j, out[0], receiver)
 
     # log:
@@ -404,6 +409,8 @@ def exchange(
     return out[0]
 
 
+# modifies(xcp_profit, D, virtual_price, last_xcp, price_scale_packed, price_oracle_packed, cached_xcp_oracle, last_prices_packed, future_A_gamma_time)
+# modifies(balances[i], balances[j])
 @external
 @nonreentrant('lock')
 def exchange_received(
@@ -428,6 +435,7 @@ def exchange_received(
     @return uint256 Amount of tokens at index j received by the `receiver`
     """
     # _transfer_in updates self.balances here:
+    # modify(balances[i])
     dx_received: uint256 = self._transfer_in(
         i,
         dx,
@@ -436,6 +444,7 @@ def exchange_received(
     )
 
     # No ERC20 token transfers occur here:
+    # modify(xcp_profit, D, virtual_price, last_xcp, price_scale_packed, price_oracle_packed, cached_xcp_oracle, last_prices_packed, future_A_gamma_time)
     out: uint256[3] = self._exchange(
         i,
         j,
@@ -445,6 +454,7 @@ def exchange_received(
 
     # _transfer_out updates self.balances here. Update to state occurs before
     # external calls:
+    # modify(balances[j])
     self._transfer_out(j, out[0], receiver)
 
     # log:
@@ -453,6 +463,11 @@ def exchange_received(
     return out[0]
 
 
+# modifies(balances[0..N_COINS])
+# modifies(totalSupply, balanceOf[receiver])
+# modifies(xcp_profit, D, virtual_price, last_xcp, price_scale_packed, price_oracle_packed, cached_xcp_oracle, last_prices_packed, future_A_gamma_time)
+# modifies(admin_lp_virtual_balance)
+# modifies(xcp_profit_a)
 @external
 @nonreentrant("lock")
 def add_liquidity(
@@ -491,6 +506,7 @@ def add_liquidity(
     for i in range(N_COINS):
         if amounts[i] > 0:
             # Updates self.balances here:
+            # modify(balances[i])
             amounts_received[i] = self._transfer_in(
                 i,
                 amounts[i],
@@ -543,9 +559,11 @@ def add_liquidity(
 
         d_token -= d_token_fee
         token_supply += d_token
+        # modify(totalSupply, balanceOf[receiver])
         self.mint(receiver, d_token)
         self.admin_lp_virtual_balance += unsafe_div(ADMIN_FEE * d_token_fee, 10**10)
 
+        # modify(xcp_profit, D, virtual_price, last_xcp, price_scale_packed, price_oracle_packed, cached_xcp_oracle, last_prices_packed, future_A_gamma_time)
         packed_price_scale = self.tweak_price(A_gamma, xp, D, 0)
 
     else:
@@ -560,6 +578,7 @@ def add_liquidity(
         # Initialise xcp oracle here:
         self.cached_xcp_oracle = d_token  # <--- virtual_price * totalSupply / 10**18
 
+        # modify(totalSupply, balanceOf[_to])
         self.mint(receiver, d_token)
 
     assert d_token >= min_mint_amount, "Slippage"
@@ -573,6 +592,10 @@ def add_liquidity(
     return d_token
 
 
+# modifies(totalSupply, balanceOf[_to])
+# modifies(D)
+# modifies(balances[0..N_COINS])
+# modifies(cached_xcp_oracle, last_timestamp, last_xcp)
 @external
 @nonreentrant("lock")
 def remove_liquidity(
@@ -595,6 +618,7 @@ def remove_liquidity(
     # -------------------------------------------------------- Burn LP tokens.
 
     total_supply: uint256 = self.totalSupply  # <------ Get totalSupply before
+    # modify(totalSupply, balanceOf[_to])
     self.burnFrom(msg.sender, _amount)  # ---- reducing it with self.burnFrom.
 
     # There are two cases for withdrawing tokens from the pool.
@@ -632,6 +656,7 @@ def remove_liquidity(
     for i in range(N_COINS):
         # _transfer_out updates self.balances here. Update to state occurs
         # before external calls:
+        # modify(balances[i])
         self._transfer_out(i, withdraw_amounts[i], receiver)
 
     log RemoveLiquidity(msg.sender, withdraw_amounts, total_supply - _amount)
@@ -663,6 +688,11 @@ def remove_liquidity(
     return withdraw_amounts
 
 
+# modifies(admin_lp_virtual_balance, last_admin_fee_claim_timestamp)
+# modifies(balances[0..N_COINS])
+# modifies(xcp_profit, D, virtual_price)
+# modifies(totalSupply, balanceOf[_to])
+# modifies(last_xcp, price_scale_packed, price_oracle_packed, cached_xcp_oracle, last_prices_packed, future_A_gamma_time)
 @external
 @nonreentrant("lock")
 def remove_liquidity_one_coin(
@@ -682,6 +712,10 @@ def remove_liquidity_one_coin(
     @return Amount of tokens at index i received by the `receiver`
     """
 
+
+    # modify(admin_lp_virtual_balance, last_admin_fee_claim_timestamp)
+    # modify(balances[0..N_COINS])
+    # modify(xcp_profit, D, virtual_price)
     self._claim_admin_fees()  # <--------- Auto-claim admin fees occasionally.
 
     A_gamma: uint256[2] = self._A_gamma()
@@ -706,8 +740,10 @@ def remove_liquidity_one_coin(
     # ---------------------------- State Updates -----------------------------
 
     # Burn user's tokens:
+    # modify(totalSupply, balanceOf[_to])
     self.burnFrom(msg.sender, token_amount)
 
+    # modify(xcp_profit, D, virtual_price, last_xcp, price_scale_packed, price_oracle_packed, cached_xcp_oracle, last_prices_packed, future_A_gamma_time)
     packed_price_scale: uint256 = self.tweak_price(A_gamma, xp, D, 0)
     #        Safe to use D from _calc_withdraw_one_coin here ---^
 
@@ -715,6 +751,7 @@ def remove_liquidity_one_coin(
 
     # _transfer_out updates self.balances here. Update to state occurs before
     # external calls:
+    # modify(self.balances[_coin_idx])
     self._transfer_out(i, dy, receiver)
 
     log RemoveLiquidityOne(
@@ -804,6 +841,7 @@ def _unpack_prices(_packed_prices: uint256) -> uint256[2]:
 # ---------------------- AMM Internal Functions -------------------------------
 
 
+# modifies(xcp_profit, D, virtual_price, last_xcp, price_scale_packed, price_oracle_packed, cached_xcp_oracle, last_prices_packed, future_A_gamma_time)
 @internal
 def _exchange(
     i: uint256,
@@ -876,11 +914,13 @@ def _exchange(
 
     # ------ Tweak price_scale with good initial guess for newton_D ----------
 
+    # modify(xcp_profit, D, virtual_price, last_xcp, price_scale_packed, price_oracle_packed, cached_xcp_oracle, last_prices_packed, future_A_gamma_time)
     packed_price_scale = self.tweak_price(A_gamma, xp, 0, y_out[1])
 
     return [dy, fee, packed_price_scale]
 
 
+# modifies(xcp_profit, D, virtual_price, last_xcp, price_scale_packed, price_oracle_packed, cached_xcp_oracle, last_prices_packed, future_A_gamma_time)
 @internal
 def tweak_price(
     A_gamma: uint256[2],
@@ -1095,6 +1135,9 @@ def tweak_price(
     return packed_price_scale
 
 
+# modifies(admin_lp_virtual_balance, last_admin_fee_claim_timestamp)
+# modifies(balances[0..N_COINS])
+# modifies(xcp_profit, D, virtual_price)
 @internal
 def _claim_admin_fees():
     """
@@ -1213,6 +1256,7 @@ def _claim_admin_fees():
 
             # _transfer_out tokens to admin and update self.balances. State
             # update to self.balances occurs before external contract calls:
+            # modify(self.balances[i])
             self._transfer_out(i, admin_tokens[i], fee_receiver)
 
         log ClaimAdminFee(fee_receiver, admin_tokens)
@@ -1407,6 +1451,7 @@ def _calc_withdraw_one_coin(
 # ------------------------ ERC20 functions -----------------------------------
 
 
+# modifies(allowance[_owner][_spender])
 @internal
 def _approve(_owner: address, _spender: address, _value: uint256):
     self.allowance[_owner][_spender] = _value
@@ -1414,6 +1459,7 @@ def _approve(_owner: address, _spender: address, _value: uint256):
     log Approval(_owner, _spender, _value)
 
 
+# modifies(balanceOf[from], balanceOf[to])
 @internal
 def _transfer(_from: address, _to: address, _value: uint256):
     assert _to not in [self, empty(address)]
@@ -1441,6 +1487,7 @@ def _domain_separator() -> bytes32:
     return CACHED_DOMAIN_SEPARATOR
 
 
+# modifies(self.allowance, balanceOf[from], balanceOf[to])
 @external
 def transferFrom(_from: address, _to: address, _value: uint256) -> bool:
     """
@@ -1452,12 +1499,15 @@ def transferFrom(_from: address, _to: address, _value: uint256) -> bool:
     """
     _allowance: uint256 = self.allowance[_from][msg.sender]
     if _allowance != max_value(uint256):
+        # modify(self.allowance)
         self._approve(_from, msg.sender, _allowance - _value)
 
+    # modify(balanceOf[from], balanceOf[to])
     self._transfer(_from, _to, _value)
     return True
 
 
+# modifies(balanceOf[from], balanceOf[to])
 @external
 def transfer(_to: address, _value: uint256) -> bool:
     """
@@ -1466,10 +1516,12 @@ def transfer(_to: address, _value: uint256) -> bool:
     @param _value The amount to be transferred.
     @return bool True on successful transfer. Reverts otherwise.
     """
+    # modify(balanceOf[from], balanceOf[to])
     self._transfer(msg.sender, _to, _value)
     return True
 
 
+# modifies(allowances[owner][spender])
 @external
 def approve(_spender: address, _value: uint256) -> bool:
     """
@@ -1484,6 +1536,7 @@ def approve(_spender: address, _value: uint256) -> bool:
     return True
 
 
+# modifies(nonces[_owner], allowances[owner][spender])
 @external
 def permit(
     _owner: address,
@@ -1528,10 +1581,12 @@ def permit(
     assert ecrecover(digest, _v, _r, _s) == _owner  # dev: invalid signature
 
     self.nonces[_owner] = unsafe_add(nonce, 1)  # <-- Unsafe add is safe here.
+    # modify(self.allowances[owner, spender])
     self._approve(_owner, _spender, _value)
     return True
 
 
+# modifies(totalSupply, balanceOf[_to])
 @internal
 def mint(_to: address, _value: uint256) -> bool:
     """
@@ -1549,6 +1604,7 @@ def mint(_to: address, _value: uint256) -> bool:
     return True
 
 
+# modifies(totalSupply, balanceOf[_to])
 @internal
 def burnFrom(_to: address, _value: uint256) -> bool:
     """
