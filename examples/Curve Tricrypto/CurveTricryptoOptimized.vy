@@ -463,6 +463,27 @@ def exchange_received(
     return out[0]
 
 
+# modifies(xcp_profit, D, virtual_price, last_xcp, price_scale_packed, price_oracle_packed, cached_xcp_oracle, last_prices_packed, future_A_gamma_time)
+# modifies(balances[i], balances[j])
+@external
+@nonreentrant('lock')
+def exchange(i: uint256, j: uint256, dx: uint256, min_dy: uint256) -> uint256:
+    # _transfer_in updates self.balances here:
+    dx_received: uint256 = self._transfer_in(i, dx, msg.sender, False)
+
+    # No ERC20 token transfers occur here:
+    out: uint256[3] = self._exchange(i, j, dx_received, min_dy)
+
+    # _transfer_out updates self.balances here.
+    # Update to state occurs before external calls:
+    self._transfer_out(j, out[0], msg.sender)
+
+    # log:
+    log TokenExchange(msg.sender, i, dx_received, j, out[0], out[1], out[2])
+
+    return out[0]
+
+
 # modifies(balances[0..N_COINS])
 # modifies(totalSupply, balanceOf[receiver])
 # modifies(xcp_profit, D, virtual_price, last_xcp, price_scale_packed, price_oracle_packed, cached_xcp_oracle, last_prices_packed, future_A_gamma_time)
@@ -841,7 +862,6 @@ def _unpack_prices(_packed_prices: uint256) -> uint256[2]:
 # ---------------------- AMM Internal Functions -------------------------------
 
 
-# modifies(xcp_profit, D, virtual_price, last_xcp, price_scale_packed, price_oracle_packed, cached_xcp_oracle, last_prices_packed, future_A_gamma_time)
 @internal
 def _exchange(
     i: uint256,
@@ -914,7 +934,6 @@ def _exchange(
 
     # ------ Tweak price_scale with good initial guess for newton_D ----------
 
-    # modify(xcp_profit, D, virtual_price, last_xcp, price_scale_packed, price_oracle_packed, cached_xcp_oracle, last_prices_packed, future_A_gamma_time)
     packed_price_scale = self.tweak_price(A_gamma, xp, 0, y_out[1])
 
     return [dy, fee, packed_price_scale]

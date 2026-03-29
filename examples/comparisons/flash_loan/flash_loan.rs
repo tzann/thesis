@@ -18,10 +18,6 @@ contract FlashLender {
         let caller: Address = EVM::caller();
         self.debt[caller] = amount;
 
-        modify(self.debt) {
-            self.execute_transfer();
-        }
-
         // Step A: Send the money to the borrower
         EVM::transfer(caller, amount);
 
@@ -29,7 +25,7 @@ contract FlashLender {
         // The borrower MUST call 'repay()' inside this function execution
         let calldata = ABI::encodeCall(IFlashBorrower::onFlashLoan, (amount));
 
-        reenter(Self::repay) {
+        reenter(Self::repay) modify(self.debt) {
             EVM::raw_call(caller, calldata);
         }
 
