@@ -1,20 +1,134 @@
 \chapter{Evaluation}\label{ch:evaluation}
 
-In this chapter we will briefly reintroduce the language design concepts we discussed earlier and see how they fit into simple examples of real-world contracts. These example contracts stem from a widely-used smart contract library maintained by OpenZeppelin. They often only implement a very specific functionality and therefore usually remain quite small and easy to understand. We have reimplemented the identical functionality in our language to compare and discuss the differences. \\
-Afterwards, we will look at some vulnerabilities that were exploited in well-known contracts. After seeing the same functionality reimplemented in our language, we will demonstrate the difficulty of writing code that is vulnerable in the same fashion. Of course, we cannot address all types of vulnerabilities, merely the ones we set out to solve initially.
+\section{Reentrancy Protection}
 
-%Core features:
-%\begin{itemize}
-%   \item Granular reentrancy protection
-%   \item Side effect tracking
-%   \item Algebraic data types
-%   \item Safety by default
-%   \item Traits instead of inheritance
-%\end{itemize}
+Clearly, the main goal of providing protection mechanisms to guard against reentrancies is to prevent real-world vulnerabilities. Thus, it is vital to consider how our approach would have impacted historical cases where reentrancy vulnerabilities led to an exploitable security flaw. To analyze this, we can use the vulnerability dataset introduced in the background chapter -- it contains 54 cases of reentrancy exploits, totalling \$187 million in lost funds. These cases can be further broken up into a few categories. Firstly, the majority of exploited contracts did not make use of reentrant behaviour at all, instead they simply did not adequately protect against it. For these 37 cases, simply rejecting all reentrant calls by default would have sufficed.
+\par
+Next, there were 6 cases of read-only reentrancies -- here, the contracts being exploited were not being reentered, instead they relied a price oracle to determine a conversion ratio between two currencies. However, the oracle contracts did not protect their read-only functions against reentrant calls. Thus, the price could be manipulated for the duration of the reentrant call, and when the oracle price is read from, an incorrect value is returned. This results in the unfortunate situation where the contract being exploited is not really implemented incorrectly, instead it simply relied on an unreliable oracle. Because this type of exploit was first discovered in 2022, it is only recently that it has become standard to protect read-only functions against reentrant calls. In fact, applying the standard \solinline{@nonReentrant} modifier to a view function in Solidity is not possible, since the modifier itself writes to storage. Similarly, it was originally not possible to use the built-in \lstinline{@nonreentrant} modifier on view functions in Vyper. Thus, we argue that these vulnerabilities were the result of a lack of appropriate tooling, as well as the knowledge that this type of vulnerability is even possible. Once again, this issue would have been avoided if the oracle contracts had simply rejected all reentrant calls.
+\par
+The next category involves certain token standards. There are various token standards, such as ERC-777, ERC-677, and more, which mandate a \solinline{beforeTokenTransfer} (or similar) call to the receiver of a transfer, so as to give the receiver a chance to reject the transfer. However, as these standards are extensions to the ERC-20 token standard, they can be used in place of any other ERC-20 token. Thus, any protocol that involves ERC-20 tokens must carefully consider the possibility that a token they interact with might lead to reentrant calls. Another 6 of the reentrancy vulnerabilities were due to this oversight. While it is true that rejecting all reentrant calls might suffice in this case, it does also mean that interacting with some of the mentioned token standards would no longer be possible, due to the mandated callbacks. Since the creators of these protocols did intend to interact with such callback tokens, it is by definition part of the use case they were intending. Thus, we argue that a more sophisticated mechanism would have been necessary
+to prevent these vulnerabilities.
+\par
+Two of the vulnerabilities involved contracts with flash loan functionality. The usual way this works is the following: The external user calls the flash loan contract, specifying an address to a contract they control, as well as an amount of some currency to borrow. Next, the flash loan contract transfers this amount to the specified contract, then makes an external call to it. When this external call terminates, it asserts that the full balance has been repaid, along with some fee on top. Sometimes, the user is expected to make a reentrant call to a \solinline{repay} function on the flash loan contract, although this is not strictly necessary. In any case, it becomes extroardinarily important to handle reentrant calls correctly - if borrowing some funds sets the users debt to the amount borrowed, then reentrantly borrowing a second time would overwrite this value. Furthermore, correctly tracking the balances to assert that the full debt has been repaid is again critical. Flash loans in general are extremely prone to being drained of funds, since the use case itself inherently involves transferring a large amount of funds to an address the user controls. For example, in the specific case of the DFX exploit, the same contract could also be used to simply deposit funds and withdraw them. However, the flash loan functionality simply checked the balance of the contract as a whole to see if the borrowed funds had been returned. Moreover, the \solinline{flash} function was the sole entrypoint without a reentrancy guard. Thus, the user could borrow the funds without triggering a reentrancy guard, then reentrantly deposit the funds regularly. The contract then saw that the funds had been returned, and erroneously assumed they had simply been transferred. Finally, the user could then withdraw to completely drain the contract of funds.
+\par
+A further two vulnerabilities involved manually written reentrancy guards that intended to allow some reentrant functionalities but disallow others. Clearly, this use case required reentrant calls, but the adequate tools were not available to do this correctly. Hence, we again argue the importance of being able to granularly specify reentrant call paths.
+\par
+The final case involved a bug in the Vyper compiler. The built-in reentrancy guards were not implemented correctly in some versions, allowing them to be bypassed. While it is true that rejecting reentrant calls would have prevented this, it is unfair to argue that the issue could have been addressed by language design. The developers wrote secure code, it was simply compiled incorrectly. Hence, we do not claim that our tools would have prevented this exploit.
+\par
+These findings are summarized in table \ref{table:reentrancyresults}, where "Safety by Default" refers to whether or not the vulnerability would have been prevented by simply rejecting all reentrant calls, and "Path-Specific" refers to whether our proposed protection mechanism of specifying the reentrant call path would have sufficed.
+
+\begin{table}[h!]
+\centering
+{\setlength{\extrarowheight}{5pt}
+\begin{tabular}{  c  c  c  c  c  }
+ \toprule
+ Category                       & Count & Funds Lost & Safety by Default & Path-Specific (Ours) \\ [4pt]
+ \midrule
+ Missing Guard              & 37       & \$151 million & \multicolumn{2}{c}{\cellcolor{green!25}Yes} \\ [3pt]
+ Read-only Reentrancy & 6         &  \$9.6 million & \multicolumn{2}{c}{\cellcolor{green!25}if oracle contract uses mechanism} \\[3pt]
+ Callback Token             & 6         &  \$57.6 million & \cellcolor{yellow!25}incompatible & \cellcolor{green!25}Yes \\[3pt]
+ Manual Guards             & 2         &  \$27.7 million & \cellcolor{red!25}No & \cellcolor{green!25}Yes \\[3pt]
+ Flash Loan                     & 2         &  \$5.7 million & \cellcolor{red!25}No & \cellcolor{green!25}Yes \\[3pt]
+ Compiler Bug               & 1         &  \$41 million & \multicolumn{2}{c}{\cellcolor{yellow!25}Unclear} \\[3pt]
+ \midrule
+ Total                               & 54        &  \$187 million & 43/54 & 53/54 \\[3pt]
+ \bottomrule
+\end{tabular}
+}
+\caption{Preventability of 54 real-world reentrancy vulnerabilities (2021-2024)}
+\label{table:reentrancyresults}
+\end{table}
+
+\subsection{Performance Overhead}
+
+Of course, no runtime safety checks come without a tradeoff. In this case, it's even quite costly -- storage operations are one of the most expensive features of the EVM. However, offloading the responsibility of reentrancy guards to the compiler gives us an advantage: Instead of simply adding the same \lstinline{@nonReentrant} modifier to every entrypoint, we can choose the cheapest approach at compile time. For example, a function that makes no external calls does not need to \textit{write} to the guard variable, it simply needs to \textit{read} it. The main downside we have compared to standard reentrancy protection is read-only functions. In most cases, they are not guarded, meaning the guard variable is never accessed at all. Thus, if a transaction calls exactly one read-only function of the contract, we will pay the extra one-time cost of loading a cold storage slot. Any further accesses will be cheaper, but still induce the slight extra cost of loading a warm (cached) storage slot. The expected difference in gas costs can be seen in table  \ref{table:reentrancygascosts}.
+
+\begin{table}[h!]
+\centering
+{\setlength{\extrarowheight}{5pt}
+\begin{tabular}{  c  c  c  c  c  }
+ \toprule
+ Cache State & Scenario               & Standard & Ours & Delta \\ [4pt]
+ \midrule
+                       & Default                 & 300          & 300    &  \cellcolor{yellow!25}0       \\ [3pt]
+ Warm           & No external calls & 300          & 100    & \cellcolor{green!25}-200    \\[3pt]
+                       & Read-only            & 0              & 100    & \cellcolor{red!25}100          \\[3pt]
+                       & Default                 &  2300       & 2300  &  \cellcolor{yellow!25}0        \\[3pt]
+ Cold             & No external calls &  2300        & 2100  & \cellcolor{green!25}-200    \\[3pt]
+                       & Read-only            &  0             & 2100  & \cellcolor{red!25}2100         \\[3pt]
+ \bottomrule
+\end{tabular}
+}
+\caption{Differing gas costs of reentrancy protection mechanisms}
+\label{table:reentrancygascosts}
+\end{table}
+
+To verify these differences and put them in context, we measured the gas costs of some simple ERC-20 functions in the various test cases. Note that ERC-20 tokens do not usually require reentrancy protection mechanisms, we simply chose them as they are by far the most ubiquitous type of contract, and ERC-20 transfers are the most common kind of transaction.
+\par
+A 'warm' ERC20 token transfer was measured to cost the following:
+\begin{itemize}
+  \item Unguarded: 10'621 gas
+  \item Standard guard: 10'977 gas
+  \item Our guard: 10'843 gas
+\end{itemize}
+As we can see, we are saving 134 gas on this call, out of the expected 200. This is mostly due to the extra arithmetic operations in our reentrancy guard, since it must extract the bit associated with the specific entrypoint before checking it. It may also be the case that the Solidity compiler is not able to optimize the stack operations as much, since we are restoring the original value of the guard once the call terminates. Thus, any internal function call must clear the stack when it exits, rather than being able to directly return (discarding anything left on the stack for free).
+\par
+A 'cold' ERC20 total supply check (read-only) was measured to cost:
+\begin{itemize}
+  \item Unguarded: 2248 gas
+  \item Our guard: 4489 gas
+\end{itemize}
+Here we can see the real cost of loading an extra storage value. Not only are we paying the cost for the runtime check that is usually omitted, we also pay for loading a storage slot that would not otherwise have been accessed. This results in the 2241 extra gas in our call. Note that it is not possible for the \solinline{totalSupply} storage slot to be warm while the reentrancy guard is cold, since our approach accesses the guard on every call. Additionally, the base gas cost of a transaction is 21'000 gas. Thus, even if we assume a contract function which costs nothing and instantly returns, the absolute worst case scenario, we pay at most 10.7\% more gas. While this does seem expensive, it can occur at most once per transaction, and most transactions are significantly more expensive. However, we do acknowledge that there is a tradeoff at play -- is it worth the extra security guarantees to pay a small additional cost on every transaction? As we have seen, read-only reentrancy vulnerabilities have lead to at least \$9.6 million dollars in lost funds, if not more. Assuming a conversion of 20'000 gas to $\approx$ \$0.01, this would be enough to pay for roughly 10 billion extra cold storage loads. Hence, we argue that the tradeoff is worth it as default behaviour, although developers might want to opt out of these extra checks in favor of cheaper transactions.
+
+
+
+
+
+\section{Effect Annotations}
+
+The primary goal of the effect system is to enhance auditability of code. However, a secondary advantage is that developers are required to double-check their work. If they write annotations, but the code induces different effects, this will be reported by the compiler. The compiler can even produce warnings when effects are annotated, but not produced by the code! Thus, any unexpected or missing side effects will be flagged, letting the developer know that something is awry. Furthermore, the tedious nature of writing such annotations will incentivize an approach to development which reduces the number and diversity of side effects. This is a desirable outcome, since this necessarily entails a smaller potential for unintended interactions between effects. Since the effects become simpler to reason about, this will also accelerate the auditing process.
+\par
+For auditors, the explicit nature of these annotations has two further advantages: As mentioned, they demonstrate the developers intent when writing the code -- thus also serving as a form of documentation for the contract under audit. More importantly, the modularity of the effects, i.e. that they are individually declared for each function, allows the auditor to focus on reasoning about a single function at a time, rather than first having to consider which side effects may occur in nested calls.
+\par
+The clear downside of requiring all side effects to be annotated, of course, is the extra time it takes to write these annotations. Unfortunately, auto-generating these annotations would defeat some of the purpose -- the developer would not be double-checking their work, and likely would just ignore the annotations entirely. For auditors, it would still be useful, although no more useful than the output of any static analysis tool, with the exception of reentrant calls. Due to the native modelling of reentrancy, our compiler is able to directly propagate side effects (or lack thereof) across reentrant calls. This is not possible with any other language, without first running sophisticated static analysis to determine which reentrant calls are even possible.
+\par
+The key question for developers is of course the following: How many extra lines of code do they need to write? This of course depends heavily on the code architecture. However, we will show that many well-known projects already follow an "effect-oriented" approach to development, meaning there is little additional effort to write annotations, let alone design the code in such a way to minimize their number. For the analysis of the number of additional lines of code, we will use 5 real-world smart contracts, with various levels of complexity:
+\begin{itemize}
+  \item ERC-20 Token: ~50 LoC
+  \item Simple Token Exchange: ~300 LoC
+  \item AAVE Lending Pool Core: ~1100 LoC
+  \item Curve Tricrypto: ~1500 LoC
+\end{itemize}
+
+For each contract, we count the number of state-modifying functions, as well as the total number of indirect side effects within those function bodies. This lets us estimate the total number of required annotations, and hence give us an approximate overhead when compared to the contract's total lines of code. Of course, this does not necessarily measure the extra \textit{time} required to write the correct annotations, since that might require careful consideration. Still, it gives us an approximate fraction of additional effort that would be necessary due to the effect system. The results of these measurements are detailed in table \ref{table:effectlinesofcode}.
+
+\begin{table}[h!]
+\centering
+{\setlength{\extrarowheight}{5pt}
+\begin{tabular}{  c  c  c  c  c  c }
+ \toprule
+ Contract                            & State Vars & LoC & Effectful functions & Indirect Effects & Additional LoC \\[4pt]
+ \midrule
+ ERC-20 Token                    & 3                & 50    & 6 / 9                         & 2                          &  \cellcolor{yellow!25}16.67\%      \\[3pt]
+ Simple Token Exchange  & 8               & 300   & 7 / 16                       & 2                         & \cellcolor{yellow!25}9\%               \\[3pt]
+ AAVE Lending Pool          & 5               & 1100 & 42 / 88                    & 32                        & \cellcolor{yellow!25}6.73\%          \\[3pt]
+ Curve Tricrypto                 & 24             & 1500 & 33 / 90                    & 24                        &  \cellcolor{yellow!25}3.8\%           \\[3pt]
+ \bottomrule
+\end{tabular}
+}
+\caption{Additional lines of code required by effect annotations}
+\label{table:effectlinesofcode}
+\end{table}
+
+What we can clearly see is that there is an inverse proportionality relationship between code size and overhead percentage -- the larger a contract becomes, the less the annotations contribute to its overall sizer in terms of lines of code. Complex contracts don't necessarily have many different state variables that are modified in many different combinations -- instead, they are often grouped together and modified in similar ways. Therefore, the code dealing with state modifications does not scale in line with the complexity of the contract, instead it grows at a slower rate. Of course, the sample size here is not very significant, it merely serves to indicate the approximate percentages and the inverse relationship.
+
+
+
+
 
 \section{Algebraic Data Types}
 When modelling a state machine, it is standard practice to make use of regular enumeration types. However, such a value can only encode a single state, but not contain any auxiliary information. Standard workarounds include using "magic values", i.e., encoding state information via setting a field to a specific predetermined value, as well as defining a "kitchen-sink" struct, namely one that contains all fields for all states at the same time.
-
+\par
 For example, ERC20 tokens are specified such that the value \rustinline{u256::MAX} $= 2^{256}-1$ represents an unlimited allowance, whereas any other value represents an allowance equivalent to its actual quantity. Now, any read or write to such an allowance must be checked against this magic value, leading to a higher risk of developer mistakes. Here, we compare the "standard" implementation of the ERC20 \rustinline{transferFrom} function, as specified by the ERC20 token standard:
 
 \begin{changemargin}{-0.7cm}{-0.7cm} 
@@ -88,7 +202,8 @@ impl Allowance {
 \emph{Note: In both cases, no underflow check is necessary, because both compilers insert overflow checks on arithmetic operations by default. However, it may sometimes be preferable to check manually in order to produce a more specific error message.}
 \end{changemargin}
 
-Defining an ADT in such a manner provides two distinct advantages: First, it becomes much simpler to separate the underlying logic (reducing the allowance by the spent amount) from the contract's functionality (transferring tokens). Second, the type system now makes it impossible to misinterpret an unlimited allowance as a finite one, whereas in Solidity the developer needs to actively remember to check for the "magic value" every time they use an allowance. \\
+Defining an ADT in such a manner provides two distinct advantages: First, it becomes much simpler to separate the underlying logic (reducing the allowance by the spent amount) from the contract's functionality (transferring tokens). Second, the type system now makes it impossible to misinterpret an unlimited allowance as a finite one, whereas in Solidity the developer needs to actively remember to check for the "magic value" every time they use an allowance.
+\par
 Of course, in such a simple example the benefits are dampened by the overhead induced by the additional code needed to define the ADT. However, in more complex cases the advantage becomes much clearer. Furthermore, smart contracts often model processes that can be easily represented by a state machine. This is the perfect application for an ADT, as we will see in the next example.
 
 \subsection{Real-world example}
@@ -168,125 +283,6 @@ enum ProposalCore {
     Executed,
 }
 \end{lstlisting}
-
-\section{Reentrancy Protection}
-
-Reentrancy vulnerabilities are one of the most widely-known classes of smart contract bugs. Despite the fact that most smart contract developers are aware of their existence, reentrancies are to this day one of the most common vectors for real-world exploits. Thus, it is clear that the tools provided by the current development ecosystem are insufficient to systematically prevent this type of vulnerability.
-
-In fact, Solidity provides no built-in reentrancy protection tools at all, although its \textit{function modifier} feature provides a convenient way for developers to implement their own protection mechanism. Vyper on the other hand does provide opt-in reentrancy protection, although even this protection was exploited due to a compiler bug.\\
-Note that in both cases, the reentrancy checks are specific to their entrypoints. This means that if an entrypoint is not protected, any subsequent external call made by the contract could potentially reenter any of the contract's entrypoints. If an entrypoint \textit{is} protected, any external call made is still able to reenter all unprotected entrypoints of the contract.
-
-It is trivial for the compiler to infer what kind of check needs to be made based on the entrypoint, as well as only allowing specific external calls to reenter only their desired entrypoints.
-
-Only a minority of smart contracts even require reentrant calls for their core functionality, and even fewer of these require anything more than a single reentrant call path. As such, it seems prudent for most cases to disable reentrant calls by default, and allow the developer to individually define each required reentrant call path individually. If the core functionality of a smart contract must include reentrancies, the developer must consider the safety of such calls very carefully. Hence, it is little additional overhead to require them to specify each call path individually. In fact, it requires every necessary call path to be explicitly considered, so it is virtually impossible for an unexpected reentrant call to happen.
-
-\subsection{Real-world examples}
-
-There is an abundance of real-world reentrancy vulnerabilities, although many are either outdated or part of large projects and hence difficult to summarize succinctly.
-
-In October 2022, a new class of reentrancy vulnerability was first described -- named a read-only reentrancy. It was long the consensus that reentrancy bugs could only occur if the reentrant call itself modified the contract state. However, simply the fact that a read-only function might return an incorrect intermediate value can be enough to trigger a bug. Most cases of such bugs involve price oracles -- that is, contracts whose purpose is to estimate the current exchange price between two or more currencies. It is often possible to manipulate these oracles, although it is usually at great expense. In some cases, it is possible to manipulate the oracle price, then for the oracle to call back to the user. If a third-party contract now relies on the value returned by the oracle contract, it will read the manipulated price and be vulnerable to exploitation. Note that this would not be possible if the oracle contract didn't allow control flow to reenter the read-only function.
-
-In fact, the standard approach to reentrancy protection in Solidity does not even allow protecting read-only functions. Instead, developers must implement two separate checks, one for regular calls and one for read-only calls. Meanwhile, Vyper has extended its opt-in mechanisms to also include read-only functions as well.
-
-todo: reentrancy examples, compound ERC777
-
-
-\section{Side Effects}
-
-Note: "Side effect" is a very broad term that can be applied to many types of behaviour. In this case, we specifically discuss \textit{state modifications}, but the approach can be extended to almost any other kind of side effect, such as state reads, event emission, external calls, and so on.\\
-In a sense, one could say that the purpose of smart contracts is to cause side effects on the blockchain. In any case, it is quite important for developers to be aware of what side effects are happening in what order. In the first case, hidden or implicit side effects in the code can trigger unexpected behaviour, for example if one state change overwrites another, or if outdated values are used for further computations. In the second case, ambiguities in execution order can also lead to unexpected behaviour, although this is more limited to \textit{intentionally misleading} code, such as the winning submission in the \textbf{Underhanded Solidity Contest} in 2022.
-
-The evaluation order of expressions is explicitly stated to be undefined in Solidity, which means that a vast amount of deployed smart contracts are actually inducing undefined behaviour during the compilation process. Of course, this is almost always benign, but still represents a real threat. The Vyper documentation also explicitly states that the evaluation order of arguments to built-in functions is undefined. In other cases, the documentation does not specify anything at all.
-
-Keeping track of state modifications throughout the various call paths of a smart contract is also critical in the case of smart contract audits. If it were at a glance clear that an entrypoint cannot trigger certain state modifications, it would be much easier to rule out certain kinds of vulnerabilities, without having to manually go through each line of code. Additionally, if the syntax is explicitly clear about when side effects can happen, it is much less likely for developers to overlook unexpected state modifications. For example, Vyper only allows state variables to be modified via syntax such as \lstinline{self.xyz = 5}. Contrast this to solidity, where a statement such as \lstinline{xyz = 5;} does not make immediately clear whether it is modifying a local variable or a state variable of the contract.
-
-However, in both languages, the syntax of a function call does not explicitly distinguish whether or not state modifications can happen. When reading code, it is impossible to know what side effects might be caused by a function call without fully understanding the function's body. In a sense, this is equivalent to the concept of \textit{information hiding}, which means that a caller should not be reliant on the internals of a function, but instead only depend on its signature. Thus, we can require functions to explicitly state any possible modifications in their signatures.\\
-Although this significantly improves the situation, it doesn't entirely solve the problem -- if we see a function call like \lstinline{self.foo()}, it's still necessary to go and look at the signature of the function to determine its declared side effects. Again, this may allow unintended side effects to go unnoticed. If the developer is also required to explicitly allow the side effects at the \textit{call site}, then it becomes immediately clear at a glance what exactly is happening.
-
-\begin{lstlisting}[language=Rust, style=boxed]
-pub fn foo(amount: u256) -> u256
-  modifies(self.last_amount)
-  modifies(self.n)
-{
-  self.last_amount = amount;
-
-  let count: u256;
-  modify(self.n) {
-    count = self.increment();
-  }
-
-  return count;
-}
-
-fn increment() -> u256
-  modifies(self.n)
-{
-  let result = self.n;
-  self.n += 1;
-  return result;
-}
-\end{lstlisting}
-
-As you can see in the above example, only the indirect side effect caused by the call to \lstinline{self.increment()} is required to be explicitly declared. In the case of \lstinline{self.last_amoount = amount}, it is already clear that the state is being modified without any surrounding declarations.
-
-\subsection{Side Effects in Reentrant Calls}
-
-This concept of side effect declaration also pairs very well with the granular reentrancy path declaration detailed earlier. In fact, without such a feature, it would be almost impossible to determine what side effects might occur to the contract state during an external call. However, if the external call must specify exactly which reentrancies are possible, then the compiler can treat the external call as though it were a regular function call, at least concerning side effects. Thus, the call site must be marked with the potential side effects that would be induced if the reentrant call is made.\\
-Note that we also require the possible reentrancy to be declared in the function signature. If the reentrant call itself may trigger further such calls, it should be clear at the call site that this is a possibility. However, it is unlikely for a real-world use case to strictly require nested reentrant calls, so it would also suffice to simply disallow further reentrant calls.
-
-\noindent\begin{minipage}{.45\textwidth}
-\begin{lstlisting}[caption=Ours, language=Rust, style=boxed]{Name}
-pub fn foo(
-  x: u256
-) -> u256
-  modifies(self.val)
-  reenters(Self::bar)
-{
-  self.val = x;
-  modify(self.val) {
-    EVM::reentrant_call(
-      Self::bar,
-      address,
-      data
-    );
-  }
-  return self.val;
-}
-
-pub fn bar()
-  modifies(self.val)
-{
-   self.val += 1;
-}
-\end{lstlisting}
-\end{minipage}\hfill
-\begin{minipage}{.45\textwidth}
-\begin{lstlisting}[caption=Solidity, language=Solidity, style=boxedSol]{Name}
-function foo(uint x)
-  public
-  returns (uint)
-{
-    value = newValue;
-    address.call(data);
-    return value;
-}
-
-function bar()
-  public
-{
-    value += 1;
-}
-\end{lstlisting}
-\end{minipage}
-
-Here, it is again immediately obvious that the new value written to the state variable may be overwritten by the reentrant call. Contrast that to the equivalent Solidity code, where it is not even clear that a reentrant call is possible in the first place, let alone what side effects it may cause. In fact, any of the existing languages for EVM would be equivalent, since their reentrancy protections are declared at the entrypoints, not the call sites.\\
-Of course, this example also makes clear that the strict requirements for side effect declarations result in verbose code. However, we believe that this is a trade-off which is worth the additional overhead, since the stakes are so high. 
-
-
-
-
-
-
 
 
 
