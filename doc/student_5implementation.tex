@@ -1,3 +1,75 @@
 \chapter{Implementation}\label{ch:implementation}
 
-This page unintentionally left blank.
+The implementation of our compiler consists of roughly 30'000 lines of Rust code, as well as another \~10'000 lines of code for tests. The pipeline is a of relatively standard design, with the novel addition of a pass to check the effect annotations. All in all, it consists of 13 passes, although some similar functionalities are split up simply because not all the necessary information is available the first time around. For example, syntax desugaring is applied once before type inference, and again afterwards -- this is an unfortunate consequence of the type system, since it is not clear right away whether an expression such as \rustinline{Type::Member} refers to a constant, function, or enum variant (we do not support associated types). Moreover, the member may be present in multiple different traits or \rustinline{impl} blocks, so until type inference occurs we can't know which one it refers to. This is especially relevant for pattern matching, since matching on a constant is very different from matching on an enum variant. Each step in the pipeline is explained in more detail in the following section.
+
+\section{Pipeline}
+
+The pipeline consists of the following (unique) steps:
+\begin{itemize}
+  \item Lexing
+  \item Parsing
+  \item Desugaring
+  \item Lexing
+  \item Linking
+  \item Type Inference
+  \item Effect Checks
+  \item Monomorphisation
+  \item Code Generation
+\end{itemize}
+
+\subsection{Lexing, Parsing and Desugaring}
+
+The source code is initially converted into a stream of tokens. These tokens consist of symbols, keywords, identifiers and literals. Note that there is also a slight distinction between keywords and identifiers with special meaning. For example, \rustinline{return} is a keyword, which can never be used to mean anything other than a \rustinline{return} expression. However, \rustinline{self} is a special identifier which can only be used in certain contexts, but does otherwise behave as any other identifier would.
+\par
+The parsing is responsible for converting this token stream into the actual abstract syntax tree representation, which will be used for the remainder of the compilation pipeline. Most parsing functionality is implemented through parser combinators, although expression parsing is manually programmed to follow certain precedence rules, and to avoid ambiguities. For example, a struct constructor cannot be used as a top-level expression in a match scrutinee, since this would lead to ambiguous parsing: \par
+\rustinline{match Struct { ... } { ... } } \par
+This could be a match expression scrutinizing a struct literal, or it could be a match on an expression consisting of the identifier \rustinline{Struct}, followed by the match body and then a regular code block. This second choice would likely fail to parse, but it might take an arbitrarily large look-ahead to figure this out, so it is simpler to just disallow struct constructors in this position. \par
+The syntax desugaring helps simplify the compilation process by reducing the number of syntax elements that can occur. This is done by rewriting certain constructs into others. For example, any \rustinline{if} statement can be represented through an equivalent \rustinline{match} expression. In fact, every variable declaration is actually equivalent to a match expression with a single arm! This avoids having to do similar pattern matching checks for destructuring variable declarations, such as \rustinline{let (x, y) = e;}. \par
+Some built-in operators are also actually defined as traits, so that \rustinline{a + b} is converted into a trait method call such as \rustinline{Add::add(a, b)}. This conversion is also done at this point. \par
+One aspect of desugaring that is done later on is specifying path identifiers to be enum variants. This avoids having to look up the resolution of an identifier to distinguish between variables and enum variants, for example in pattern matching. The issue stems from the fact that \rustinline{Option::Some(x)} could also be a function call, or \rustinline{Option::None} could actually be referring to a constant. But this can only be determined once more information is available.
+
+\subsection{Linking}
+The linking is executed in two phases. First, all non-local definitions are collected and stored according to their module hierarchy. Then, we can pass through the AST a second time, resolving each reference to its appropriate definition. It is not always possible to uniquely resolve every reference at this stage, since we are still lacking type information, as previously mentioned. Therefore, any expressions involving trait members or similar are resolved as far as they can be, then stored for later inference. \par
+References to local variables are much simpler to resolve, since we can simply visit the AST in order and simply keep track of which variables are in scope.
+
+\subsection{Type Inference}
+
+The type inference is likely the most complex element of the compiler. The issue is a typical chicken-and-egg situation -- not all references can be resolved prior to type inference, but the types of those references cannot be known until they are resolved. Furthermore, soundly dealing with generics and trait bounds is a tricky business, since such constraints must be propagated and subsequently checked to be valid. We implement a version of Hindley-Milner type inference, loosely according to the approach described in \textit{Typing Haskell in Haskell} \cite{thih}, an excellent paper describing how a relatively similar type system can be soundly inferred. The main difference is that Haskell's class definitions differ slightly from Rust's traits, in that they do not take type arguments. That is, the type implementing a Haskell class may take type arguments (such as with Haskell's \lstinline{Monad} class), but the class itself does not directly constrain the argument type. By contrast, Rust traits explicitly take type arguments, and even may constrain them to fulfill certain trait bounds. This mainly changes how one must detect and deal with overlapping trait instances.
+\par
+We first define a few notational conventions.
+
+\paragraph{Symbolic Types}
+Since we are dealing with parametric polymorphism (generics), we also necessarily introduce the concept of symbolic types. Moreover, we need to be able to express trait bounds. The notation \rustinline{<T: Foo> T} essentially means "some type $T$ that implements the trait \rustinline{Foo}".
+
+\paragraph{Sub-Typing}
+We define the sub-typing relation between types, $T_1 <: T_2$, meaning that $T_1$ is a sub-type of $T_2$. Note however, that this sub-typing relationship differs slightly from what you might be used to from object-oriented languages. Rust has no inheritance, instead what is meant by this is that a type is "more specific" than another. For example, the type \rustinline{<T: Integer> T}, meaning some symbolic type $T$ that implements the trait \rustinline{Integer}, is "less specific" than the type \rustinline{u256}. Intuitively, this is because $T$ could refer to any type that is an integer, whereas \rustinline{u256} refers to a specific integral type. In general, $T_1 <: T_2$ holds if there is some set of substitutions $\sigma$ to the bound type variables in $T_2$ such that $\sigma(T_2) = T_1$.
+
+\paragraph{Unification and Matching}
+There are two important operations on types for our type inference. The first is the \textit{most general unifier} ($mgu$). Given two types $A$ and $B$, $mgu(A, B)$ is defined to be the "most general" type $T$ such that $A <: T$ and $B <: T$. "Most general" means that for \textit{any} type $T'$ with $A <: T$ and $B <: T$, then $T' <: T$ must also hold. Therefore, $T$ is at least as general as any other type unifying $A$ and $B$, thus making it the most general unifying type.
+\par
+The second operation is matching one type to another. For it to yield a valid result, $B <: A$ must hold. The goal is to find a set of substitutions $\sigma$, such that $\sigma(A) = B$. For example, matching \rustinline{<T: Integer> T} to \rustinline{u256} would give the substitution $T \to $ \rustinline{u256}. This operation is useful when assigning one value to another, since the left-hand-side of an assignment must have a more specific type than the right-hand-side. For example, the following assignment \textit{is} valid: \par
+\rustinline{let x: u256 = Default::default();} \par
+Whereas this one is not: \par
+\rustinline{let x: T = 0u256} \par
+In the first example, the right-hand-side is simply some symbolic type \rustinline{<D: Default> D}, and thus can be matched to \rustinline{u256}. In the second example, while $T$ is symbolic, it could refer to any type and may not be constrained.
+
+\subsubsection{Inference}
+The general approach to our type inference is to assign each expression a fresh symbolic type. Then, whenever two symbolic types are combined to form a compound expression, they can be unified according to the constraints induced by this expression. For example, let's define two variables \rustinline{a} and \rustinline{b} with symbolic types $A$ and $B$. To infer the value of the expression \rustinline{a + b}, the syntax must first be desugared. The types must implement the \rustinline{Add} trait, therefore we can safely rewrite the expression to \rustinline{Add::add(a, b)}. Note that \rustinline{a.add(b)} is \textit{not} a safe rewrite, since the type $A$ may also have other methods with the same name. Now, we can check the trait's definition to see what constraints must apply to $A$ and $B$ for this to be valid. Let's say the definition of the method is as follows:
+\par
+\rustinline{fn add(self, other: Self) -> Self}
+\par
+We can infer that $A$ must equal $B$, as well as that $A$ must implement the \rustinline{Add} trait. Thus, we infer the type of \rustinline{a + b} to be \rustinline{<A: Add> A}. This trait bound must be propagated until $A$ can be concretized, or until it is unified with a generic type with the corresponding trait bound.
+\par
+Alternatively, there may be more indirect ways of satisfying the bound. For example, if we find that $A$ implements trait \rustinline{Foo}, but that \rustinline{Foo} lists \rustinline{Add} as one of its super-traits, then the bound can be dropped as well. Alternatively, there may be some instance of the \rustinline{Add} trait that applies to $A$, even if the type is not yet concrete. This is often the case for types such as \rustinline{Option<T>}, since we can define addition over the \rustinline{Option} type by requiring \rustinline{T: Add}.
+\par
+Recall the important distinction between \textit{unifying} types and \textit{matching} them. This becomes especially critical when dealing with variable assignments and inferred types. In an assignment such as \rustinline{foo.x = y;}, we cannot safely modify the type of the left-hand-side, even if it is not a concrete type. The main exception is if we have a novel variable declaration with an inferred type, such as \rustinline{let x: _ = y;}. Here, we assign \rustinline{x} a new symbolic type, but keep track of the fact that it stems from a type that should be inferred, meaning it can safely be unified with RHS types.
+
+\subsubsection{Method Resolutions}
+The trickiest part of the type inference is to correctly resolve invoked methods to their definitions. As previously mentioned, the resolution requires type information (e.g. to know if a type implements a certain trait), but the type inference requires knowing which method is being referenced. Therefore, we cannot necessarily reject ambiguous method references right away. Instead, we run through the entire type inference once, inferring as many types as possible. If there are still unresolved symbolic types, we revisit them to see if the methods can now be uniquely resolved. If there is still an ambiguity at this point, we reject the program as being invalid (although it may still have a uniquely correct type inference, but this should be exceedingly rare).
+
+\subsection{Effect Checks}
+
+\subsection{Monomorphisation}
+
+\subsection{Code Generation}
+
