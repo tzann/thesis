@@ -1,15 +1,14 @@
 \chapter{Implementation}\label{ch:implementation}
 
-The implementation of our compiler consists of roughly 30'000 lines of Rust code, as well as another \~10'000 lines of code for tests. The pipeline is a of relatively standard design, with the novel addition of a pass to check the effect annotations. All in all, it consists of 13 passes, although some similar functionalities are split up simply because not all the necessary information is available the first time around. For example, syntax desugaring is applied once before type inference, and again afterwards -- this is an unfortunate consequence of the type system, since it is not clear right away whether an expression such as \rustinline{Type::Member} refers to a constant, function, or enum variant (we do not support associated types). Moreover, the member may be present in multiple different traits or \rustinline{impl} blocks, so until type inference occurs we can't know which one it refers to. This is especially relevant for pattern matching, since matching on a constant is very different from matching on an enum variant. Each step in the pipeline is explained in more detail in the following section.
+The implementation of our compiler consists of roughly 30'000 lines of Rust code, as well as another {\raise.17ex\hbox{$\scriptstyle\sim$}}10'000 lines of code for tests. The compiler pipeline is a of relatively standard design, with the novel addition of a pass to check the effect annotations. All in all, it consists of 13 passes, although some similar functionalities are split up into multiple stages simply because not all the necessary information is available the first time around. For example, syntax desugaring is applied once before type inference, and again afterwards -- this is an unfortunate consequence of the type system, since it is not clear right away whether an expression such as \rustinline{Type::Member} refers to a constant, function, or enum variant (or an associated type, which we do not support). Moreover, the member may be present in several different traits or \rustinline{impl} blocks, so until type inference occurs we can't necessarily deduce which one it refers to. Each step in the pipeline is explained in more detail in the following sections.
 
 \section{Pipeline}
 
-The pipeline consists of the following (unique) steps:
+The pipeline consists of the following stages:
 \begin{itemize}
   \item Lexing
   \item Parsing
   \item Desugaring
-  \item Lexing
   \item Linking
   \item Type Inference
   \item Effect Checks
@@ -17,7 +16,7 @@ The pipeline consists of the following (unique) steps:
   \item Code Generation
 \end{itemize}
 
-\subsection{Lexing, Parsing and Desugaring}
+\section{Lexing, Parsing and Desugaring}
 
 The source code is initially converted into a stream of tokens. These tokens consist of symbols, keywords, identifiers and literals. Note that there is also a slight distinction between keywords and identifiers with special meaning. For example, \rustinline{return} is a keyword, which can never be used to mean anything other than a \rustinline{return} expression. However, \rustinline{self} is a special identifier which can only be used in certain contexts, but does otherwise behave as any other identifier would.
 \par
@@ -28,23 +27,24 @@ The syntax desugaring helps simplify the compilation process by reducing the num
 Some built-in operators are also actually defined as traits, so that \rustinline{a + b} is converted into a trait method call such as \rustinline{Add::add(a, b)}. This conversion is also done at this point. \par
 One aspect of desugaring that is done later on is specifying path identifiers to be enum variants. This avoids having to look up the resolution of an identifier to distinguish between variables and enum variants, for example in pattern matching. The issue stems from the fact that \rustinline{Option::Some(x)} could also be a function call, or \rustinline{Option::None} could actually be referring to a constant. But this can only be determined once more information is available.
 
-\subsection{Linking}
+\section{Linking}
 The linking is executed in two phases. First, all non-local definitions are collected and stored according to their module hierarchy. Then, we can pass through the AST a second time, resolving each reference to its appropriate definition. It is not always possible to uniquely resolve every reference at this stage, since we are still lacking type information, as previously mentioned. Therefore, any expressions involving trait members or similar are resolved as far as they can be, then stored for later inference. \par
 References to local variables are much simpler to resolve, since we can simply visit the AST in order and simply keep track of which variables are in scope.
 
-\subsection{Type Inference}
+\section{Type Inference}
 
 The type inference is likely the most complex element of the compiler. The issue is a typical chicken-and-egg situation -- not all references can be resolved prior to type inference, but the types of those references cannot be known until they are resolved. Furthermore, soundly dealing with generics and trait bounds is a tricky business, since such constraints must be propagated and subsequently checked to be valid. We implement a version of Hindley-Milner type inference, loosely according to the approach described in \textit{Typing Haskell in Haskell} \cite{thih}, an excellent paper describing how a relatively similar type system can be soundly inferred. The main difference is that Haskell's class definitions differ slightly from Rust's traits, in that they do not take type arguments. That is, the type implementing a Haskell class may take type arguments (such as with Haskell's \lstinline{Monad} class), but the class itself does not directly constrain the argument type. By contrast, Rust traits explicitly take type arguments, and even may constrain them to fulfill certain trait bounds. This mainly changes how one must detect and deal with overlapping trait instances.
-\par
+
+\subsection{Notation}
 We first define a few notational conventions.
 
-\paragraph{Symbolic Types}
+\subsubsection{Symbolic Types}
 Since we are dealing with parametric polymorphism (generics), we also necessarily introduce the concept of symbolic types. Moreover, we need to be able to express trait bounds. The notation \rustinline{<T: Foo> T} essentially means "some type $T$ that implements the trait \rustinline{Foo}".
 
-\paragraph{Sub-Typing}
+\subsubsection{Sub-Typing}
 We define the sub-typing relation between types, $T_1 <: T_2$, meaning that $T_1$ is a sub-type of $T_2$. Note however, that this sub-typing relationship differs slightly from what you might be used to from object-oriented languages. Rust has no inheritance, instead what is meant by this is that a type is "more specific" than another. For example, the type \rustinline{<T: Integer> T}, meaning some symbolic type $T$ that implements the trait \rustinline{Integer}, is "less specific" than the type \rustinline{u256}. Intuitively, this is because $T$ could refer to any type that is an integer, whereas \rustinline{u256} refers to a specific integral type. In general, $T_1 <: T_2$ holds if there is some set of substitutions $\sigma$ to the bound type variables in $T_2$ such that $\sigma(T_2) = T_1$.
 
-\paragraph{Unification and Matching}
+\subsubsection{Unification and Matching}
 There are two important operations on types for our type inference. The first is the \textit{most general unifier} ($mgu$). Given two types $A$ and $B$, $mgu(A, B)$ is defined to be the "most general" type $T$ such that $A <: T$ and $B <: T$. "Most general" means that for \textit{any} type $T'$ with $A <: T$ and $B <: T$, then $T' <: T$ must also hold. Therefore, $T$ is at least as general as any other type unifying $A$ and $B$, thus making it the most general unifying type.
 \par
 The second operation is matching one type to another. For it to yield a valid result, $B <: A$ must hold. The goal is to find a set of substitutions $\sigma$, such that $\sigma(A) = B$. For example, matching \rustinline{<T: Integer> T} to \rustinline{u256} would give the substitution $T \to $ \rustinline{u256}. This operation is useful when assigning one value to another, since the left-hand-side of an assignment must have a more specific type than the right-hand-side. For example, the following assignment \textit{is} valid: \par
@@ -53,7 +53,7 @@ Whereas this one is not: \par
 \rustinline{let x: T = 0u256} \par
 In the first example, the right-hand-side is simply some symbolic type \rustinline{<D: Default> D}, and thus can be matched to \rustinline{u256}. In the second example, while $T$ is symbolic, it could refer to any type and may not be constrained.
 
-\subsubsection{Inference}
+\subsection{Inference}
 The general approach to our type inference is to assign each expression a fresh symbolic type. Then, whenever two symbolic types are combined to form a compound expression, they can be unified according to the constraints induced by this expression. For example, let's define two variables \rustinline{a} and \rustinline{b} with symbolic types $A$ and $B$. To infer the value of the expression \rustinline{a + b}, the syntax must first be desugared. The types must implement the \rustinline{Add} trait, therefore we can safely rewrite the expression to \rustinline{Add::add(a, b)}. Note that \rustinline{a.add(b)} is \textit{not} a safe rewrite, since the type $A$ may also have other methods with the same name. Now, we can check the trait's definition to see what constraints must apply to $A$ and $B$ for this to be valid. Let's say the definition of the method is as follows:
 \par
 \rustinline{fn add(self, other: Self) -> Self}
@@ -64,12 +64,237 @@ Alternatively, there may be more indirect ways of satisfying the bound. For exam
 \par
 Recall the important distinction between \textit{unifying} types and \textit{matching} them. This becomes especially critical when dealing with variable assignments and inferred types. In an assignment such as \rustinline{foo.x = y;}, we cannot safely modify the type of the left-hand-side, even if it is not a concrete type. The main exception is if we have a novel variable declaration with an inferred type, such as \rustinline{let x: _ = y;}. Here, we assign \rustinline{x} a new symbolic type, but keep track of the fact that it stems from a type that should be inferred, meaning it can safely be unified with RHS types.
 
-\subsubsection{Method Resolutions}
+\subsection{Method Resolutions}
 The trickiest part of the type inference is to correctly resolve invoked methods to their definitions. As previously mentioned, the resolution requires type information (e.g. to know if a type implements a certain trait), but the type inference requires knowing which method is being referenced. Therefore, we cannot necessarily reject ambiguous method references right away. Instead, we run through the entire type inference once, inferring as many types as possible. If there are still unresolved symbolic types, we revisit them to see if the methods can now be uniquely resolved. If there is still an ambiguity at this point, we reject the program as being invalid (although it may still have a uniquely correct type inference, but this should be exceedingly rare).
 
-\subsection{Effect Checks}
+\section{Effect Checks}
 
-\subsection{Monomorphisation}
+The effect tracking system is by contrast much simpler than type inference. Certain operations are defined to trigger \textit{direct} side effects, such as writing to a storage field, or calling \rustinline{EVM::reentrant_call}. These effects are aggregated along with any other inline effect declarations, in order to determine which side effects the containing function must declare. Here, we also allow declaring in a less precise way, for example \rustinline{modifies(self.foo)} would encompass both \rustinline{modifies(self.foo[0])} and \rustinline{modifies(self.foo[1])}. Side effects can also be declared in relation to function arguments, so an effect declaration such as \rustinline{modifies(self.foo[index]} is valid if \rustinline{index} is an argument to the function (or a global constant). For reentrancy annotations, it is simply required to declare all entrypoints that may be reentered within the function body. It may be useful in the future to create shorthand syntax to allow reentering all read-only functions, without having to specify them all. But this again risks developer oversight since not every entrypoint is being carefully considered in isolation.
+\par
+It is worth noting that it may be difficult to precisely annotate certain side effects, for example modifying an arbitrarily long range of elements within an array. For instance, consider the following function:
+\begin{lstlisting}[language=Rust, style=boxed]
+fn clear(self, from: u256, to: u256) {
+  for i in from..to {
+    self.array[i] = 0;
+  }
+}
+\end{lstlisting}
+It is not possible to precisely annotate these effects -- while we could introduce Rust's range syntax, it is not difficult to construct an example where the written elements are not contiguous. Without introducing some complex notion of preconditions / postconditions, we simply have to accept that the annotations will not be perfectly precise. In the above case, we can simply annotate \rustinline{modifies(self.array)} to encompass all the possible side effects. \par
+Another interesting case is well-illustrated by an example of a real-world exploit, namely that of \textit{Super Sushi Samurai}. Their contract contained a transfer function, which contained the following (slightly simplified) logic:
+\begin{lstlisting}[language=Solidity, style=boxedSol]
+function _update(address from, address to, uint256 amount) internal override virtual {
+    // don't check if it is minting or burning
+    if (from == address(0) || to == address(0) || to == address(0xdead)) {
+        super._update(from, to, amount);
+        return;
+    }
 
-\subsection{Code Generation}
+    uint256 fromBalanceBeforeTransfer = _balances[from];
+
+    uint256 amountAfterTax = amount - _taxApply(from, to, amount);
+    uint256 toBalance = _balances[to] + amountAfterTax;
+
+    _balances[from] = fromBalanceBeforeTransfer - amount;
+    _balances[to] = toBalance;
+
+    _unlockTokenForDev(from, to, amount);
+
+    emit Transfer(from, to, amountAfterTax);
+}
+\end{lstlisting}
+The relevant issue for us is that there is no check to ensure that the \solinline{from} address is different from the \solinline{to} address. Ignoring the tax applied to the transfer, we can see that \solinline{_balances[from]} is reduced before \solinline{_balances[to]} is set to \solinline{old(_balances[to]) + amountAfterTax}, where \solinline{old(x)} refers to the value of \solinline{x} before the function execution. This results in the incorrect logic when \solinline{from == to}, allowing a user to simply transfer funds to themselves, duplicating the sent amount each time. \\
+The interesting part for us is to determine how the compiler should handle this situation, given the right annotations are in place. For example, observe the following function:
+\begin{lstlisting}[language=Rust, style=boxed]
+fn transfer(self, from: Address, to: Address, amount: u256)
+  modifies(self.balances[from], self.balances[to])
+{
+  let from_balance = self.balances[from];
+  let to_balance = self.balances[to];
+  self.balances[from] = from_balance - amount;
+  self.balances[to] = to_balance + amount;
+}
+\end{lstlisting}
+It is not exactly clear how the compiler should deal with this -- of course, we could just ignore the potential aliasing issue and compile it normally. However, it is not too far-fetched to expect the compiler to at least warn the user about this. The difficulty is simply to be able to emit the warnings precisely, i.e. not give too many false positives. The necessary logical conclusions that would have to be made here are the following two:
+\begin{itemize}
+  \item \rustinline{from} is not checked to be different than \rustinline{to}
+  \item If \rustinline{from == to}, the write to \rustinline{self.balances[to]} would directly overwrite the write to \rustinline{self.balances[from]}, without that value ever being read.
+\end{itemize}
+However, we would ideally not like the compiler to have to reason about the code itself, i.e. whether or not \rustinline{from == to} is satisfiable, since that may become an arbitrarily difficult problem to solve. Thus, this is currently a situation that our compiler cannot warn the user about. What it \textit{can} do, however, is to inform the user when two such side effects are ambiguously ordered. That is, if two potentially overlapping side effects occur in the same line of code, in such a way that both possible orderings are reasonable outcomes, then the program will be rejected. Needing to enforce this is a consequence of the undefined evaluation order in Solidity, which is the target representation that our compiler produces. Therefore, to ensure safety of the produced side effects, we must reject ambiguities.
+
+\section{Monomorphisation}
+
+The monomorphisation stage concerns itself with projecting code that deals with generics onto concrete representations. Essentially, we need to gather all possible instantiations of generic elements, then create one copy of that element for each instantiation. More concretely, if we have an enum such as \rustinline{Option<T>}, and it is used in several different contexts (e.g. \rustinline{Option<u256>, Option<Address>, Option<Option<()>>}), then we want to copy the code once for each unique instantiation of this type. \par
+Unfortunately, it's not quite as simple as just seeing what all the concrete type instantiations are. Since generic code may then call into further generic code, we have to transitively apply whatever substitutions are necessary. To illustrate, let's explore a non-trivial example:
+\begin{lstlisting}[language=Rust, style=boxed]
+enum Option<T> {
+  Some(T),
+  None
+}
+trait Add<T> {
+    fn add(self, t: T) -> Self;
+}
+impl<T2, T1: Add<T2>> Add<Option<T2>> for Option<T1> {
+    fn add(self, t: Option<T2>) -> Option<T1> {
+        match (self, t) {
+            (Option::Some(a), Option::Some(b)) => Option::Some(a + b),
+            _ => Option::None,
+        }
+    }
+}
+impl Add<bool> for u256 {
+    fn add(self, t: bool) -> u256 {
+        self
+    }
+}
+impl Add<u256> for bool {
+    fn add(self, t: u256) -> bool {
+        self
+    }
+}
+fn foo() {
+    let x: u256 = 0u256;
+    let y: bool = true;
+    let z1: bool = Add::add(y, x);
+    let z2: u256 = Add::add(x, y);
+
+    let ox: Option<u256> = Option::Some(x);
+    let oy: Option<bool> = Option::Some(y);
+    let oz1: Option<bool> = Add::add(oy, ox);
+    let oz2: Option<u256> = Add::add(ox, oy);
+}
+\end{lstlisting}
+What makes this code difficult to compile, is the fact that we want to abstract addition over the \rustinline{Option<T>} type, while only requiring that $T$ itself implements the \rustinline{Add} trait, but without knowing exactly which type it refers to. First, we will gather all the references between definitions (and their type parameters). In the above example, that would be as follows:
+\begin{itemize}
+  \item  \rustinline{enum Option<T>}: $\varnothing$
+  \item  \rustinline{trait Add<T>}: $\varnothing$
+  \item  \rustinline{impl<T2, T1: Add<T2>> Add<Option<T2>> for Option<T1>}:
+  \begin{itemize}
+    \item[$\to$] \rustinline{impl Add<T2> for T1}
+    \item[$\to$] \rustinline{trait Add<Option<T2>>}
+    \item[$\to$] \rustinline{enum Option<T1>}
+    \item[$\to$] \rustinline{enum Option<T2>}
+  \end{itemize}
+  \item  \rustinline{impl Add<bool> for u256}:
+  \begin{itemize}
+    \item[$\to$] \rustinline{trait Add<bool>}
+  \end{itemize}
+  \item  \rustinline{impl Add<u256> for bool}:
+  \begin{itemize}
+    \item[$\to$] \rustinline{trait Add<u256>}
+  \end{itemize}
+  \item \rustinline{fn foo}:
+  \begin{itemize}
+    \item[$\to$] \rustinline{enum Option<u256>}
+    \item[$\to$] \rustinline{enum Option<bool>}
+    \item[$\to$] \rustinline{impl Add<Option<u256>> for Option<bool>}
+    \item[$\to$] \rustinline{impl Add<Option<bool>> for Option<u256>}
+  \end{itemize}
+\end{itemize}
+Now, we can determine what our top-level entrypoints are. In normal situations, this would simply be a list of all external contract entrypoints. Here, we will just assume \rustinline{fn foo} is the only top-level entrypoint. Thus, we start with that as our only instantiation: \\
+$\{$ \rustinline{fn foo} $\}$ \\
+Now, we can look up all the references made by this function, and add them to our list. \\
+$\{$\rustinline{foo}, \rustinline{enum Option<u256>}, \rustinline{enum Option<bool>}, \rustinline{impl Add<Option<u256>> for Option<bool>}, \rustinline{impl Add<Option<bool>> for Option<u256>} $\}$ \\
+Now, we continue by processing the next element in the list. Since \rustinline{Option} has no further references, we can skip the next two. \\
+The first interesting case to look at is \rustinline{impl Add<Option<u256>> for Option<bool>}. Since the trait implementation takes type arguments, we infer the following substitutions: $\sigma = [\texttt{Self} \to \texttt{Option<T1>}, T1 \to \texttt{bool}, T2 \to \texttt{u256}]$ \\
+Now, we apply these substitutions to any further references made by this definition:
+\begin{itemize}
+  \item $\sigma($\rustinline{impl Add<T2> for T1}$) = $ \rustinline{impl Add<u256> for bool}
+  \item $\sigma($\rustinline{trait Add<Option<T2>>}$) = $ \rustinline{trait Add<Option<u256>>}
+  \item $\sigma($\rustinline{enum Option<T1>}$) = $ \rustinline{enum Option<bool>}
+  \item $\sigma($\rustinline{enum Option<T2>}$) = $ \rustinline{enum Option<u256>}
+\end{itemize}
+This is how we are able to infer that the implementations for adding \rustinline{u256} and \rustinline{bool} to each other must be preserved. Each new instantiation we create must then also be recursively processed in this manner, until we have traversed the entire list. Now, we can create copies of the instantiated definitions, by duplicating the code while applying the appropriate substitutions. For example, the instantiation \rustinline{enum Option<bool>} becomes:
+\begin{lstlisting}[language=Rust, style=boxed]
+enum Option_bool {
+  Some(bool),
+  None
+}
+\end{lstlisting}
+This also means that we must replace every use of \rustinline{Option<bool>} with the new \rustinline{Option_bool}.
+\par
+Of course, any code that did not deal with generics in the first place need not be duplicated, and we will only create instantiations of definitions that are actually made use of directly or indirectly in external entrypoints. Thus, this stage also serves as a form of dead code elimination, since we can discard any definitions that are never used. Finally, we can also discard all definitions that use generics, since we have replaced all references to them with concrete implementations.
+
+\section{Code Generation}
+
+The translation of Rust code into Solidity code is actually not that complicated. Most structures can be roughly mapped one-to-one, at most with some minor tweaks. The major exceptions to this are tuple types, ADTs and \rustinline{match} expressions.
+
+\subsection{Tuple types}
+In Solidity, a single local variable can never contain a tuple type, even though such types can be returned by functions. Instead, one is forced to destructure such assignments. We avoid this difficulty by defining Solidity structs to serve as tuples, through a very similar process to the monomorphisation stage just discussed. Essentially, anytime a tuple is used in Rust code, we replace it by a tuple struct with the appropriate elements. Note that we do have to define a struct for each unique combination of types. Furthermore, the tuple struct will be stored in memory, rather than on the stack as it would be with native Solidity tuples.
+
+\subsection{ADTs}
+The second major challenge is provided by ADTs. Since Solidity cannot natively represent these, we must come up with a workaround. There are several ways of doing this, but for now we have chosen the easiest - an enum to define which case of the ADT is in effect, as well as an accompanying struct that contains all fields of all enum variants. Clearly, this is very memory-inefficient. Unfortunately, it is not easy to generate more optimized code without generating inline assembly to take control over memory allocations. Since this compiler is still a proof-of-concept, we decided to prioritize a correct implementation over an efficient, but more error-prone one. To illustrate the approach, we include an example compilation of a simple ADT:
+
+\noindent\begin{minipage}[t]{.5\textwidth}
+\begin{lstlisting}[language=Rust, style=boxed]
+enum MaybeOneOrTwo {
+  Two(u256, Address),
+  One(u256),
+  Zero
+}
+\end{lstlisting}
+\end{minipage}
+\begin{minipage}[t]{.5\textwidth}
+\begin{lstlisting}[language=Solidity, style=boxedSol]
+enum MaybeOneOrTwo_tag {
+  Two,
+  One,
+  Zero,
+}
+struct MaybeOneOrTwo {
+  MaybeOneOrTwo_tag tag;
+  u256 Two_0;
+  Address Two_1;
+  u256 One_0;
+}
+\end{lstlisting}
+\end{minipage}
+
+\subsection{Pattern matching}
+The final slight difficulty is compiling \rustinline{match} expressions. These can be destructured into a series of \solinline{if} / \solinline{else if} statements. In principle this is not too difficult, the appropriate conditions to check may just be nested arbitrarily deep within the scrutinee of the match expression. Furthermore, we need to translate any bound variables within each match arm to assignments within the body of the corresponding \solinline{if} statement. Lastly, we need to make use of our representation of ADTs in Solidity to correctly check which case of the ADT is currently in effect. The rough approach can be seen in the following example compilation:
+
+\begin{changemargin}{-0.7cm}{-0.7cm} 
+\noindent\begin{minipage}[t]{.5\textwidth + 0.33cm}
+\begin{lstlisting}[language=Rust, style=boxed, basicstyle=\ttfamily\footnotesize]
+pub fn asdf(val: MaybeOneOrTwo) -> u256 {
+  match val {
+    MaybeOneOrTwo::Two(_, Address::ZERO) => {
+      EVM::revert("zero address!")
+    },
+    MaybeOneOrTwo::Two(amt, addr) => {
+      let bal = EVM::balance(addr);
+      amt + bal
+    },
+    MaybeOneOrTwo::One(x) => x,
+    MaybeOneOrTwo::Zero => 0,
+  }
+}
+\end{lstlisting}
+\end{minipage}
+\begin{minipage}[t]{.5\textwidth + 1.07cm}
+\begin{lstlisting}[language=Solidity, style=boxedSol, basicstyle=\ttfamily\footnotesize]
+function asdf(MaybeOneOrTwo calldata val)
+  external
+  returns (uint256)
+{
+  MaybeOneOrTwo memory tmp = val;
+  if (
+    tmp.tag == MaybeOneOrTwo_tag.Two
+    && tmp.Two_1 == address(0)
+  ) {
+    revert(string("zero address!"));
+  } else if (tmp.tag == MaybeOneOrTwo_tag.Two) {
+    uint256 amt = tmp.Two_0;
+    address addr = tmp.Two_1;
+    uint256 bal = address(addr).balance;
+    return (amt + bal);
+  } else if (tmp.tag == MaybeOneOrTwo_tag.One) {
+    uint256 x = tmp.One_0;
+    return x;
+  } else if (tmp.tag == MaybeOneOrTwo_tag.Zero) {
+    return uint256(0);
+  }
+}
+\end{lstlisting}
+\end{minipage}
+\end{changemargin}
 
