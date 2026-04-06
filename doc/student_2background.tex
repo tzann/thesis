@@ -1,3 +1,83 @@
 \chapter{Background}\label{ch:background}
 
-This page unintentionally left blank.
+\section{EVM & Ethereum}
+
+In order to design a smart contract language for the Ethereum blockchain, it is a critical necessity to have a deep understanding of the EVM's inner workings. The full formal specification is detailed in the \textit{Ethereum Yellowpaper} \cite{yellowpaper}, but we will cover the necessary basics here. However, we will focus only on the EVM's execution model, leaving out the details of the Ethereum blockchain itself.
+
+\subsection{Overview}
+The EVM is a stack-based machine with a custom instruction set. Each instruction pops its arguments from the stack, then pushes its result (if there is one). Instructions consume \textbf{gas}, which is the cost measure of the EVM. Smart contracts may also allocate temporary values in memory, which does not persist between executions.
+
+\subsection{World State}
+The world state $\sigma$ of the EVM is a mapping from addresses to account states. An address is simply a 20-byte string which can be used as a unique identifier for each account. There are two types of accounts: Externally Owned Accounts (EOAs), which are owned and operated by external users, and smart contracts, which contain bytecode to be executed. \\
+An account state $\sigma[a]$ consists of the following four fields:
+\begin{itemize}
+  \item Nonce $\sigma[a]_n: For EOAs, incremented whenever a transaction is sent from this address. For contracts, incremented whenever they programmatically deploy a new contract (using the \lstinline{CREATE} or \lstinline{CREATE2} opcodes).
+  \item Balance $\sigma[a]_b: A scalar value, denoting the amount of native currency (ETH) this account owns.
+  \item Storage Root $\sigma[a]_s: The hash of the storage state of this account. For our purposes, we can treat it as though it were storage state itself. Storage is a map from 256-bit integers to 256-bit storage values. Only contracts may contain storage values.
+  \item Code Hash $\sigma[a]_c: The hash of the bytecode of this account. Again, we will treat it equivalently to the bytecode itself. Only contracts may contain bytecode.
+\end{itemize}
+
+\subsection{Transactions}
+There are several types of transactions, the details of which are not too important for us. Transactions are sent by external users, they can result either in a \textbf{message-call} or contract creation. When a transaction is sent, the sender's account nonce $\sigma[a]$ is incremented. They can further specify a maximum amount of \textbf{gas} to include, which is used to pay for the transaction and any resulting bytecode execution. If not enough gas is provided, the transaction will \textbf{revert}, meaning the state of the EVM is rolled back to what it was before the transaction began. The transaction may also include an ETH amount, which is transferred to the recipient account's balance $\sigma[r]_b$. For contract creation, no recipient address is given, and the ETH is instead transferred to the newly created contract. A transaction can also include \textbf{data}, which can either contain the constructor bytecode for contract creation, or be provided to a contract as input \textbf{calldata}.
+
+\subsection{Bytecode}
+The bytecode of a contract may consist of up to 24'576 bytes of code and data. The bytecode is read-only and can never be changed once a contract has been created. When a contract receives a \textbf{message-call}, the bytecode begins executing from its first byte. The standard calling convention is for the first four bytes of \textbf{calldata} to dictate the function to be executed, since a contract may have many different available functionalities. The remainder of calldata encodes the arguments to the specific function. Thus, the first segment of bytecode usually consists of \textit{function dispatch}, i.e. decoding the input data and then jumping to the corresponding function's bytecode.
+\par
+The instruction set is quite large, and contains many EVM-specific functionalities. A contract can read many different fields from block data, transaction data, or message data; or it can message-call further contracts using a variety of different call opcodes. Further, there are two opcodes related to contract creation, several for logging events (which are recorded in the transaction receipt). Importantly, the contract may also use the \lstinline{REVERT} opcode, which rolls back to the state as it was before the message-call (but doesn't fully roll back the entire transaction).
+\par
+When a new contract is created, its constructor bytecode must be provided. This constructor bytecode is directly executed by the EVM -- when this execution terminates, the data it returns is written to the new account's bytecode $\sigma[a]_c$. The constructor may also already write values to the account's storage $\sigma[a]_s$.
+\par
+There are several ways of working around the immutability of contract bytecode. The most common is to use a \textit{proxy} contract. When a proxy contract is called, it forwards the call to another contract using the \lstinline{DELEGATECALL} opcode. This opcode runs the bytecode associated with the recipient, but \textit{uses the proxy contract's storage}. Thus, any state modifications are made in the proxy contract itself. By modifying which address the proxy points to, one can ``update'' the code it is running, since the new address that is being pointed to may contain different bytecode. While this is common practice, most serious projects have a time-lock to allow users to withdraw funds before an update is rolled out -- this is a trust mechanism that prevents administrators from deploying a malicious implementation contract with no advance warning.
+
+\subsection{Execution}
+Execution usually begins with a \textbf{message-call}. Each message-call receives its own private \textbf{stack} and \textbf{memory}, which will be discarded when the message-call terminates. During execution, values may also be written to the contract's storage -- however, if execution terminates exceptionally (e.g. by executing the \lstinline{REVERT} opcode, or by running out of gas), then all state changes will be rolled back. A contract may also message-call into another contract, which will again have its own stack and memory. Importantly, if this second contract calls back into the first, the innermost message-call will have \textit{its own stack and memory}, even though the contract is already mid-execution! This is called reentrancy, and often leads to concurrency bugs, such read-write / write-read / write-write conflicts.
+
+\section{Smart Contract Languages}
+There are quite a few programming languages that can be compiled into EVM bytecode. However, by far the most common are \textbf{Solidity} and \textbf{Vyper}. Solidity has roughly 87\% market share by total invested funds, and Vyper has another ~8\%. Note also that not all projects publish their code, so it is not always clear what the source language was. Several other languages will be covered later in chapter \ref{ch:related_work}.
+
+\subsection{Solidity}
+Solidity can be thought of as an object-oriented language that replaces objects with contracts. It is a relatively high-level, statically-typed language with a relatively complex type system. Since contracts behave like objects, they can inherit from one another. Many library contracts are declared \solinline{abstract} and declare \solinline{virtual} functions. Solidity even has multiple inheritance, and thus runs into typical issues like the diamond problem. User-defined types include \solinline{struct} and \solinline{enum}, but these are not object-like. Like in Java, Solidity distinguishes between primitive types (pass-by-value) and reference types. Primitive types include booleans, integers, addresses, function pointers, storage pointers, and enums. Arrays, strings, and structs are reference types, which must also specify their storage location -- that is, they must declare if they are contained in \solinline{calldata}, \solinline{memory} or \solinline{storage}. Lastly, mappings are also reference types, but they can only be contained in storage.
+\subsubsection{Functions and Modifiers}
+Solidity functions can be declared using the \solinline{function} keyword. They may also specify visibility: \solinline{internal} functions can only be called by the contract itself, \solinline{external} functions only using message-call (i.e. from outside), and \solinline{public} functions can be called in both ways. Further, functions can declare mutability -- \solinline{view} denotes that the function is read-only, i.e. it does not write state, and \solinline{pure} denotes that the function is mathematically pure, meaning it can not read from any non-constant values. Functions may also be declared \solinline{payable}, meaning they will not reject calls that include a non-zero amount of ETH along with the call. \par
+Custom function \textit{modifiers} can be declared using the \solinline{modifier} keyword. The modifier specifies code that will run \textit{before} and \textit{after} any function that includes it in its signature. For example, a typical use case is a \solinline{@nonReentrant} modifier, which simply adds a reentrancy guard that runs before any function that is declared as such.
+\par
+As is typical in many object-oriented languages, functions may be \textit{overloaded} and \textit{overridden}. However, there is no operator overloading.
+
+\subsubsection{Special functions}
+fallback, receive, constructor
+\subsubsection{Compiler}
+tODO?
+
+\subsection{Vyper}
+The Vyper language is based closely on Python, and was designed to be simple and intuitive -- thus allowing both the code as well as the compiler to be as understandable as possible. It explicitly prioritizes language \textit{readability} over simplicity in writing code. The language is intentionally quite limiting, in that it gives developers little low-level control over memory allocations, calldata and other such behaviours. The language also forbids unbounded loops and recursion, so that gas costs can always be bounded from above. Instead of inheritance, Vyper allows modularity through \textit{composition}.
+\subsubsection{Functions and Modifiers}
+Similar to Solidity, Vyper functions can be declared with \lstinline{@external} or \lstinline{@public} visibility, with the default being internal. Vyper functions can also be declared as \lstinline{@view}, \lstinline{@pure} and \lstinline{@payable}, with similar implications as in Solidity. Lastly, Vyper has built-in reentrancy protection mechanisms, allowing the developer to declare a function to be \lstinline{@nonreentrant}. Alternatively, the line \lstinline{# pragma nonreentrancy on} can be included to disable reentrant calls altogether.
+
+\subsubsection{Special functions}
+fallback, receive, constructor
+\subsubsection{Compiler}
+tODO?
+
+\section{Smart Contract Vulnerabilities}
+There is no community-wide standard taxonomy of smart contract vulnerabilities \cite{taxonomy}. Especially when analyzing real-world exploits, multiple different bugs or attack vectors can be combined, meaning there is no clear category to be assigned. Nonetheless, most cases do have a relatively clear ``main'' category that they fit in to. Throughout this thesis, we will be using a dataset of exploits collected by DeFiHackLabs \cite{dataset}. While their list does contain more cases, we excluded those that were not programmatic in nature (e.g. key compromise), or those that were due to off-chain bugs occurring outside the EVM (e.g. bridge exploits). Finally, we only included data from 2021-2024, as the data for previous and subsequent years was not (yet) conclusively collected. Thus, we obtained a sample set of 549 classifiable exploits for our analyses. They were categorized into the following groups:
+\begin{enumerate}
+  \item Business Logic
+  \item Price Manipulation
+  \item Access Control
+  \item Reentrancy
+  \item Input Validation
+  \item Precision Loss
+  \item Arbitrary Call
+  \item Token Design
+  \item Slippage
+  \item Other
+\end{enumerate}
+
+
+
+
+\section{Security & Auditing}
+
+\section{Language Design Concepts}
+
+
