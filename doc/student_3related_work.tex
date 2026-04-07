@@ -1,3 +1,71 @@
 \chapter{Related Work}\label{ch:related_work}
 
-This page unintentionally left blank.
+\section{Security-Focused Languages}
+
+There have been many previous efforts to design smart contract languages, or to adapt general-purpose languages to compile to EVM bytecode. Of course, many remain experimental or are simply outdated, but this is not too surprising. Several languages are also purposely restrictive in their domain: Zinc \cite{zinc} is a language solely intended for writing zero-knowledge circuits and contracts based on zero-knowledge proofs, and Lira \cite{lira} \cite{lira-evm} is a domain-specific language for financial contracts, intended for those with a background in finance rather than programming.
+
+\subsection{Flint}
+
+The Flint programming language \cite{flint} is a safety-oriented language based on Swift, with several notable security mechanisms. Its \textbf{caller capabilities} dictate who can call which external functions, as a built-in access control mechanism. In addition, each state-modifying function must declare the storage variables it may modify. Flint also provides linear asset types, allowing token balances to be modelled directly by the type system. This prevents double-counting or double-spending bugs at compile time. Since the language was originally designed, it has been extended so as to be \textit{formally verifiable} \cite{flint-verif}, by converting Flint code to the Boogie verification language. Despite the features pioneered by Flint being quite powerful, it has not been widely used. Moreover, Flint does not provide any built-in mechanisms to deal with reentrancy directly -- instead, it simply assumes that external calls may cause any state changes that do not violate a contract's declared invariants (if verification is enabled). This significantly hinders verification across call boundaries -- meaning it becomes quite difficult to verify the absence of reentrancy bugs. 
+
+\subsection{Scilla}
+
+Scilla \cite{scilla} (\textbf{S}mart \textbf{C}ontract \textbf{I}ntermediate-\textbf{L}evel \textbf{LA}nguage) is an intermediate representation for smart contracts for the Zilliqa blockchain. Contracts are modelled as automata, meaning computations are modelled via state transitions. Further, computation and communication are conceptually separated, meaning external calls must be in tail position, i.e. they can only be executed as the last operation. The type system ensures certain properties about contract transitions, making Scilla programs more easily automatically verifiable. The restriction of external calls to tail position prevents reentrancy bugs entirely, but also severely restricts the interactivity of contracts.
+
+\subsection{Move}
+
+Move \cite{move} is a resource-oriented language originally designed by Facebook / Meta for the Libra blockchain, but has since been discontinued. Some community efforts have been made to port it to other platforms such as Aptos. Similar to Flint, the language models assets with linear types, preventing duplication of token amounts. Further, it provides native access control mechanisms, again by defining custom \textit{resource types}. Unfortunately, the properties enforced by the language require the bytecode to be \textit{verified} before deployment, to ensure that all relevant safety properties hold. Due to this restriction, applying Move to the EVM would be a futile endeavour, since the properties assumed by the language would not hold in any other environment.
+
+\subsection{Idris}
+Idris \cite{idris1} \cite{idris2} is a general-purpose functional programming language with dependent types. It also features an experimental backend for compiling to EVM bytecode \cite{idris-evm}. This backend makes use of the effect system built into the language to model side effects such as ETH transfers and storage mutations. Further, they build cryptographic commitments into the type system, so that hidden information is guaranteed not to be revealed early. The functional nature of the language of course means all side effects must be explicitly stated, but the feature set of the custom backend is quite limiting. Since external calls are not yet supported, reentrancy vulnerabilities are of course prevented by default.
+
+\subsection{Fe}
+
+Fe \cite{fe} was originally a re-implementation of the Vyper compiler in Rust. Since its initial release, more and more Rust-like features were added, resulting in a significant amount of technical debt due to the design diverging from the initial goals. In March 2026, the language was redesigned from the ground up \cite{fe26} to be much more closely based on Rust, to make it a more compelling alternative to Solidity and Vyper. Due to its recent overhaul, the language is still experimental and not yet production-ready. This redesign includes an effect system, requiring functions to explicitly declare the resources they interact with, such as storage, the execution context, and so on. Apart from the effects, the type system is very similar to Rust, including ADTs and parametric polymorphism. Further, the language requires explicit definitions of \textit{messages}, which represent the external interface of a contract. A contract can declare a \textit{receive} block to declare the implementations for each message type. The functionality can either be implemented directly there, or be defined for example on a user-defined type to conceptually separate the contract from its functionality. So far, the language has not yet implemented any cross-contract features beyond basic external calls, much less any built-in reentrancy protection mechanisms. However, given the recent flurry of activity, this may well change in the near future.
+
+\subsection{Remarks}
+
+Across all reviewed languages, no existing languages targeting EVM have sufficient protection mechanisms to prevent reentrancy vulnerabilities -- the most impactful vulnerability class in our dataset. Fe is the closest in spirit, featuring both an expressive Rust-like type system and explicit effect declarations. Notably, its redesign occurred during the writing of this thesis, suggesting these are natural abstractions for the problem space. However, Fe still lacks reentrancy protection mechanisms, leaving this as the primary remaining gap our work addresses.
+
+% \section{Static Analysis and Verification}
+
+% \subsection{Slither}
+
+% \subsection{Mythril}
+
+% \subsection{Certora}
+
+% \subsection{Remarks}
+
+\section{Reentrancy Protection Mechanisms}
+
+Despite reentrancy being one of the most prevalent and costly classes of smart contract vulnerabilities, existing protection mechanisms remain largely inadequate. We survey the most widely used approaches and discuss their shortcomings
+
+\subsection{Checks-Effects-Interactions}
+The checks-effects-interactions (CEI) pattern \cite{cei} is the most widely recommended coding convention for preventing reentrancy. It dictates that a function should be structured in three parts: First, \textit{check} all preconditions and validate any inputs; second, update internal state (\textit{effects}); and third, perform any external calls (\textit{interactions}). This prevents reentrancy vulnerabilities by ensuring that state is always fully updated before an external call, meaning the state will be in a consistent state during the external calls.
+\par
+The CEI pattern has several shortcomings. First of all, it is purely a coding convention, and is not enforced by the compiler. Therefore, it relies purely on developer (or auditor) discipline. Clearly, this is not sufficient in practice, as demonstrated by our vulnerability dataset. More importantly, the pattern cannot always be applied -- sometimes, a contract requires several interactions to happen, with checks or state updates in between. Lastly, the pattern does not exclude all possible reentrancy bugs, it merely guarantees that the contract's state is not inconsistent during external calls.
+
+\subsection{Reentrancy guards}
+Reentrancy guards are by far the most common protection mechanism. They are defined adding annotations to the entrypoints of a contract. The standard implementation writes a boolean flag to storage when an annotated entrypoint is entered, and clears it when execution terminates. Whenever the contract is entered, it first checks to see if the flag is set, meaning that this call is reentrant. This allows the contract to revert if the reentrant call should not be allowed. Vyper provides a builtin \lstinline{@nonreentrant} annotation for functions. In Solidity, this is typically implemented as a function modifier:
+\begin{lstlisting}[language=Solidity, style=boxedSol]
+bool private _locked;
+
+modifier nonReentrant() {
+    require(!_locked, "Reentrant call");
+    _locked = true;
+    _;
+    _locked = false;
+}
+\end{lstlisting}
+Note that \solinline{_;} represents the body of the function the modifier is being applied to -- that is, \solinline{_locked = true;} happens before the function body is executed, and \solinline{_locked = false;} afterwards. This type of modifier is also available in OpenZeppelin's widely-used smart contract library \cite{openzeppelin}.
+\par
+While reentrancy guards are more reliable than CEI in that they are enforced at runtime, they still have critical limitations. For instance, they must be manually applied by the developer. Given the non-trivial gas overhead induced by them, developers may selectively apply them only as they deem necessary, reintroducing the risk of oversight. Moreover, some projects explicitly require reentrant behaviour, in which case some reentrant calls must be permitted. This results in two distinct problems: First, any external call within the contract could reenter into the permitted entrypoint, regardless of what the developer's intent is. Even if one of the calls can safely reenter, any others may be in an inconsistent state. Regardless, the lack of a reentrancy guard would allow those external calls to reenter. The second problem has to do with what happens when the contract is first entered through an unguarded entrypoint. In this case, no flag is set at all -- if an external call is now made, it will be able to reenter \textit{any} entrypoint of the contract! This is even worse, since an attacker can now control which reentrant call is made.
+
+\subsection{Static Analysis}
+Several publicly available static analysis tools exist that are capable of detecting potential reentrancy bugs in Solidity code. Most notably, Slither \cite{slither} and Mythril \cite{mythril} analyse the control flow and call graph of a contract, flagging cases where an external call precedes a state modification -- a violation of the CEI pattern.
+\par
+While this is useful, such tools have fundamental limitations in their application. First of all, any reentrancy guard will by definition be flagged by such analysis, since the lock flag is reset after any external calls. In general, such static analyzers often tend to report a vast amount of false positives \cite{how-effective-analysis-tools}, since they usually prioritize soundness over precision. Also, they are only useful if they are actually used -- again, it is just an optional mechanism that relies on developer discipline. Finally, static analysis across call boundaries is fundamentally limited, since the behaviour of external contracts is unknown.
+
+\subsection{Comparison with Our Approach}
+In contrast to the above mechanisms, our language addresses reentrancy \textit{at the language level}, making protection the default rather than an opt-in. Instead of guarding entrypoints, we introduce \textbf{path-specific} reentrancy annotations. By default, all reentrant calls are rejected. When a contract legitimately requires a reentrant call, the developer can opt in to exactly the required call path, nothing more. This is a significantly safer approach than leaving entire entrypoints unguarded, since it minimises the attack surface. Furthermore, since the protection is enforced by the compiler, it cannot be accidentally omitted. Lastly, the guarantees provided by the path-specificity enable analysis across reentrant call boundaries. This mechanism will be expanded upon in Chapter \ref{ch:methodology}.

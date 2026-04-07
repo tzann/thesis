@@ -1,6 +1,6 @@
 \chapter{Background}\label{ch:background}
 
-\section{EVM & Ethereum}
+\section{EVM \& Ethereum}
 
 In order to design a smart contract language for the Ethereum blockchain, it is a critical necessity to have a deep understanding of the EVM's inner workings. The full formal specification is detailed in the \textit{Ethereum Yellowpaper} \cite{yellowpaper}, but we will cover the necessary basics here. However, we will focus only on the EVM's execution model, leaving out the details of the Ethereum blockchain itself.
 
@@ -11,10 +11,10 @@ The EVM is a stack-based machine with a custom instruction set. Each instruction
 The world state $\sigma$ of the EVM is a mapping from addresses to account states. An address is simply a 20-byte string which can be used as a unique identifier for each account. There are two types of accounts: Externally Owned Accounts (EOAs), which are owned and operated by external users, and smart contracts, which contain bytecode to be executed. \\
 An account state $\sigma[a]$ consists of the following four fields:
 \begin{itemize}
-  \item Nonce $\sigma[a]_n: For EOAs, incremented whenever a transaction is sent from this address. For contracts, incremented whenever they programmatically deploy a new contract (using the \lstinline{CREATE} or \lstinline{CREATE2} opcodes).
-  \item Balance $\sigma[a]_b: A scalar value, denoting the amount of native currency (ETH) this account owns.
-  \item Storage Root $\sigma[a]_s: The hash of the storage state of this account. For our purposes, we can treat it as though it were storage state itself. Storage is a map from 256-bit integers to 256-bit storage values. Only contracts may contain storage values.
-  \item Code Hash $\sigma[a]_c: The hash of the bytecode of this account. Again, we will treat it equivalently to the bytecode itself. Only contracts may contain bytecode.
+  \item Nonce $\sigma[a]_n$: For EOAs, incremented whenever a transaction is sent from this address. For contracts, incremented whenever they programmatically deploy a new contract (using the \lstinline{CREATE} or \lstinline{CREATE2} opcodes).
+  \item Balance $\sigma[a]_b$: A scalar value, denoting the amount of native currency (ETH) this account owns.
+  \item Storage Root $\sigma[a]_s$: The hash of the storage state of this account. For our purposes, we can treat it as though it were storage state itself. Storage is a map from 256-bit integers to 256-bit storage values. Only contracts may contain storage values.
+  \item Code Hash $\sigma[a]_c$: The hash of the bytecode of this account. Again, we will treat it equivalently to the bytecode itself. Only contracts may contain bytecode.
 \end{itemize}
 
 \subsection{Transactions}
@@ -30,10 +30,10 @@ When a new contract is created, its constructor bytecode must be provided. This 
 There are several ways of working around the immutability of contract bytecode. The most common is to use a \textit{proxy} contract. When a proxy contract is called, it forwards the call to another contract using the \lstinline{DELEGATECALL} opcode. This opcode runs the bytecode associated with the recipient, but \textit{uses the proxy contract's storage}. Thus, any state modifications are made in the proxy contract itself. By modifying which address the proxy points to, one can ``update'' the code it is running, since the new address that is being pointed to may contain different bytecode. While this is common practice, most serious projects have a time-lock to allow users to withdraw funds before an update is rolled out -- this is a trust mechanism that prevents administrators from deploying a malicious implementation contract with no advance warning.
 
 \subsection{Execution}
-Execution usually begins with a \textbf{message-call}. Each message-call receives its own private \textbf{stack} and \textbf{memory}, which will be discarded when the message-call terminates. During execution, values may also be written to the contract's storage -- however, if execution terminates exceptionally (e.g. by executing the \lstinline{REVERT} opcode, or by running out of gas), then all state changes will be rolled back. A contract may also message-call into another contract, which will again have its own stack and memory. Importantly, if this second contract calls back into the first, the innermost message-call will have \textit{its own stack and memory}, even though the contract is already mid-execution! This is called reentrancy, and often leads to concurrency bugs, such read-write / write-read / write-write conflicts.
+Execution usually begins with a \textbf{message-call}. Each message-call receives its own private \textbf{stack} and \textbf{memory}, which will be discarded when the message-call terminates. During execution, values may also be written to the contract's storage -- however, if execution terminates exceptionally (e.g. by executing the \lstinline{REVERT} opcode, or by running out of gas), then all state changes will be rolled back. A contract may also message-call into another contract, which will again have its own stack and memory. Importantly, if this second contract calls back into the first, the innermost message-call will have \textit{its own stack and memory}, even though the contract is already mid-execution! This is called reentrancy, and often leads to concurrency bugs, such as read-write / write-read / write-write conflicts.
 
 \section{Smart Contract Languages}
-There are quite a few programming languages that can be compiled into EVM bytecode. However, by far the most common are \textbf{Solidity} and \textbf{Vyper}. Solidity has roughly 87\% market share by total invested funds, and Vyper has another ~8\%. Note also that not all projects publish their code, so it is not always clear what the source language was. Several other languages will be covered later in chapter \ref{ch:related_work}.
+There are quite a few programming languages that can be compiled into EVM bytecode. However, by far the most common are \textbf{Solidity} and \textbf{Vyper}. Solidity has roughly 87\% market share by total invested funds, and Vyper has another ~8\% \cite{solidity-vs-vyper}. Note also that not all projects publish their code, so it is not always clear what the source language was. Several other languages will be covered later in chapter \ref{ch:related_work}.
 
 \subsection{Solidity}
 Solidity can be thought of as an object-oriented language that replaces objects with contracts. It is a relatively high-level, statically-typed language with a relatively complex type system. Since contracts behave like objects, they can inherit from one another. Many library contracts are declared \solinline{abstract} and declare \solinline{virtual} functions. Solidity even has multiple inheritance, and thus runs into typical issues like the diamond problem. User-defined types include \solinline{struct} and \solinline{enum}, but these are not object-like. Like in Java, Solidity distinguishes between primitive types (pass-by-value) and reference types. Primitive types include booleans, integers, addresses, function pointers, storage pointers, and enums. Arrays, strings, and structs are reference types, which must also specify their storage location -- that is, they must declare if they are contained in \solinline{calldata}, \solinline{memory} or \solinline{storage}. Lastly, mappings are also reference types, but they can only be contained in storage.
@@ -43,41 +43,214 @@ Custom function \textit{modifiers} can be declared using the \solinline{modifier
 \par
 As is typical in many object-oriented languages, functions may be \textit{overloaded} and \textit{overridden}. However, there is no operator overloading.
 
-\subsubsection{Special functions}
-fallback, receive, constructor
-\subsubsection{Compiler}
-tODO?
+\subsubsection{Remarks}
+Solidity was not originally designed with EVM intricacies in mind -- it simply leaves all responsibility to the developer. While there are many smart contract libraries that implement protection mechanisms, this is all left to the developer. The most notable exception are overflow checks, which have been automatically generated since the release of Solidity v0.8 in 2020. The language also suffers from typical object-oriented issues -- multiple inheritance, function overriding and other such features lead to confusing behaviour. They can make the control flow very difficult to follow.
 
 \subsection{Vyper}
 The Vyper language is based closely on Python, and was designed to be simple and intuitive -- thus allowing both the code as well as the compiler to be as understandable as possible. It explicitly prioritizes language \textit{readability} over simplicity in writing code. The language is intentionally quite limiting, in that it gives developers little low-level control over memory allocations, calldata and other such behaviours. The language also forbids unbounded loops and recursion, so that gas costs can always be bounded from above. Instead of inheritance, Vyper allows modularity through \textit{composition}.
 \subsubsection{Functions and Modifiers}
 Similar to Solidity, Vyper functions can be declared with \lstinline{@external} or \lstinline{@public} visibility, with the default being internal. Vyper functions can also be declared as \lstinline{@view}, \lstinline{@pure} and \lstinline{@payable}, with similar implications as in Solidity. Lastly, Vyper has built-in reentrancy protection mechanisms, allowing the developer to declare a function to be \lstinline{@nonreentrant}. Alternatively, the line \lstinline{# pragma nonreentrancy on} can be included to disable reentrant calls altogether.
 
-\subsubsection{Special functions}
-fallback, receive, constructor
-\subsubsection{Compiler}
-tODO?
+\subsubsection{Remarks}
+In terms of language design, Vyper is already a massive step up over Solidity. It prioritizes simplicity and auditability over developer convenience, and deliberately omits more complex features such as inheritance and function overloading as a safety measure. However, while it does feature a few built-in protection mechanisms, it is still up to the developer to opt in, in most cases. It also gives little control over memory allocations, and due to a lack of optimizations this often results in a large memory footprint.
 
 \section{Smart Contract Vulnerabilities}
-There is no community-wide standard taxonomy of smart contract vulnerabilities \cite{taxonomy}. Especially when analyzing real-world exploits, multiple different bugs or attack vectors can be combined, meaning there is no clear category to be assigned. Nonetheless, most cases do have a relatively clear ``main'' category that they fit in to. Throughout this thesis, we will be using a dataset of exploits collected by DeFiHackLabs \cite{dataset}. While their list does contain more cases, we excluded those that were not programmatic in nature (e.g. key compromise), or those that were due to off-chain bugs occurring outside the EVM (e.g. bridge exploits). Finally, we only included data from 2021-2024, as the data for previous and subsequent years was not (yet) conclusively collected. Thus, we obtained a sample set of 549 classifiable exploits for our analyses. They were categorized into the following groups:
+There is no community-wide standard taxonomy of smart contract vulnerabilities \cite{taxonomy}. Especially when analyzing real-world exploits, multiple different bugs or attack vectors can be combined, meaning there is no clear category to be assigned. Nonetheless, most cases do have a relatively clear ``main'' category that they fit into. Throughout this thesis, we will be using a dataset of exploits collected by DeFiHackLabs \cite{dataset}. While their list does contain more cases, we excluded those that were not programmatic in nature (e.g. key compromise), or those that were due to off-chain bugs occurring outside the EVM (e.g. bridge exploits). Finally, we only included data from 2021-2024, as the data for previous and subsequent years was not (yet) conclusively collected. Thus, we obtained a sample set of 549 classifiable exploits for our analyses. The two main data points we are interested in, are the \textbf{prevalence} and \textbf{impact} of each vulnerability class. That is, how often is each vulnerability exploited, and how severe are the exploits? We measure the impact by financial damage caused -- not necessarily the amount successfully stolen. We do not attempt to assess reputational damage or other such cost measures. We have categorized the exploits into ten vulnerability classes:
 \begin{enumerate}
-  \item Business Logic
-  \item Price Manipulation
-  \item Access Control
-  \item Reentrancy
-  \item Input Validation
-  \item Precision Loss
-  \item Arbitrary Call
-  \item Token Design
-  \item Slippage
-  \item Other
+  \item Business Logic -- Flaws in the intended behaviour of the contract, the code behaves correctly but the specification is susceptible.
+  \item Price Manipulation -- The contract relies on an external oracle contract to determine an exchange rate, but the oracle is not reliable enough (i.e. can be manipulated).
+  \item Access Control -- Missing or incorrect permissions regarding who can call sensitive functions.
+  \item Reentrancy -- An external call allows a malicious contract to re-enter the calling contract mid-execution, leading to read / write conflicts.
+  \item Precision Loss -- Rounding errors in integer (or fixed-point decimal) arithmetic that accumulate or can be otherwise exploited to drain funds.
+  \item Input Validation -- Failure to check validity of user-supplied arguments.
+  \item Token Design -- Vulnerabilities arising from non-standard or malicious token behaviour that was not accounted for.
+  \item Arbitrary Call -- Allowing an untrusted external call with attacker-controlled target or calldata.
+  \item Slippage -- Insufficient protection against unfavorable price movements between transaction submission and execution.
+  \item Other -- Miscellaneous vulnerabilities that do not cleanly fit into the above categories.
 \end{enumerate}
+Even if a vulnerability is exceedingly common, if it rarely results in large damages, then it may not be too critical to protect against. However, if a vulnerability is very rare, but on average results in very high damages, then this is definitely a concern. The rarity means that developers will not be so familiar with protecting against such a vulnerability, despite the high risk involved. Finally, if we simply want to minimize potential damages, then preventing vulnerabilities in descending order of total lost funds would suffice. Figure \ref{fig:vulnerabilities_count} compares the \textbf{prevalence} of each vulnerability over the four-year period, while figure \ref{fig:vulnerabilities_funds} compares their \textbf{impact}. The quantitative results are summarized in table \ref{table:vulnerability_classes}.
 
+\begin{figure}[h!]
+  \centering
+  \begin{tikzpicture}
+  \begin{axis}[
+    ybar stacked,
+    bar width=20pt,
+    ymin=0, ymax=100,
+    yticklabel={\pgfmathprintnumber\tick\%},
+    ymajorgrids=true,
+    grid style={gray!20},
+    ytick={0,10,20,30,40,50,60,70,80,90,100},
+    xtick=data,
+    symbolic x coords={2021,2022,2023,2024,Total},
+    legend style={at={(1.05,1)}, anchor=north west},
+    width=12cm, height=8cm,
+  ]
 
+  % One \addplot per category, bottom to top
+  \addplot[fill=accent1, forget plot] table [x=year, y=business_logic, col sep=comma] {vulnerability_count_pct.csv};
+  \addplot[fill=accent2, forget plot] table [x=year, y=price_manipulation, col sep=comma] {vulnerability_count_pct.csv};
+  \addplot[fill=accent3, forget plot] table [x=year, y=access_control, col sep=comma] {vulnerability_count_pct.csv};
+  \addplot[fill=accent4, forget plot] table [x=year, y=reentrancy, col sep=comma] {vulnerability_count_pct.csv};
+  \addplot[fill=accent5, forget plot] table [x=year, y=precision_loss, col sep=comma] {vulnerability_count_pct.csv};
+  \addplot[fill=accent6, forget plot] table [x=year, y=input_validation, col sep=comma] {vulnerability_count_pct.csv};
+  \addplot[fill=accent1d, forget plot] table [x=year, y=token_design, col sep=comma] {vulnerability_count_pct.csv};
+  \addplot[fill=accent2d, forget plot] table [x=year, y=arbitrary_call, col sep=comma] {vulnerability_count_pct.csv};
+  \addplot[fill=accent3d, forget plot] table [x=year, y=slippage, col sep=comma] {vulnerability_count_pct.csv};
+  \addplot[fill=accent4d, forget plot] table [x=year, y=other, col sep=comma] {vulnerability_count_pct.csv};
 
+  % Legend entries in reverse order to match plot stack
+  \addlegendimage{area legend, fill=accent4d} \addlegendentry{Other}
+  \addlegendimage{area legend, fill=accent3d} \addlegendentry{Slippage}
+  \addlegendimage{area legend, fill=accent2d} \addlegendentry{Arbitrary Call}
+  \addlegendimage{area legend, fill=accent1d} \addlegendentry{Token Design}
+  \addlegendimage{area legend, fill=accent6} \addlegendentry{Input Validation}
+  \addlegendimage{area legend, fill=accent5} \addlegendentry{Precision Loss}
+  \addlegendimage{area legend, fill=accent4} \addlegendentry{Reentrancy}
+  \addlegendimage{area legend, fill=accent3} \addlegendentry{Access Control}
+  \addlegendimage{area legend, fill=accent2} \addlegendentry{Price Manipulation}
+  \addlegendimage{area legend, fill=accent1} \addlegendentry{Business Logic}
 
-\section{Security & Auditing}
+  \end{axis}
+  \end{tikzpicture}
+  \caption{Smart contract vulnerabilities by count, 2021--2024.}
+  \label{fig:vulnerabilities_count}
+\end{figure}
+
+\begin{figure}[h!]
+  \centering
+  \begin{tikzpicture}
+  \begin{axis}[
+    ybar stacked,
+    bar width=20pt,
+    ymin=0, ymax=100,
+    yticklabel={\pgfmathprintnumber\tick\%},
+    ymajorgrids=true,
+    grid style={gray!20},
+    ytick={0,10,20,30,40,50,60,70,80,90,100},
+    xtick=data,
+    symbolic x coords={2021,2022,2023,2024,Total},
+    legend style={at={(1.05,1)}, anchor=north west},
+    width=12cm, height=8cm,
+  ]
+
+  % One \addplot per category, bottom to top
+  \addplot[fill=accent1, forget plot] table [x=year, y=business_logic, col sep=comma] {vulnerability_funds_pct.csv};
+  \addplot[fill=accent2, forget plot] table [x=year, y=price_manipulation, col sep=comma] {vulnerability_funds_pct.csv};
+  \addplot[fill=accent3, forget plot] table [x=year, y=access_control, col sep=comma] {vulnerability_funds_pct.csv};
+  \addplot[fill=accent4, forget plot] table [x=year, y=reentrancy, col sep=comma] {vulnerability_funds_pct.csv};
+  \addplot[fill=accent5, forget plot] table [x=year, y=precision_loss, col sep=comma] {vulnerability_funds_pct.csv};
+  \addplot[fill=accent6, forget plot] table [x=year, y=input_validation, col sep=comma] {vulnerability_funds_pct.csv};
+  \addplot[fill=accent1d, forget plot] table [x=year, y=token_design, col sep=comma] {vulnerability_funds_pct.csv};
+  \addplot[fill=accent2d, forget plot] table [x=year, y=arbitrary_call, col sep=comma] {vulnerability_funds_pct.csv};
+  \addplot[fill=accent3d, forget plot] table [x=year, y=slippage, col sep=comma] {vulnerability_funds_pct.csv};
+  \addplot[fill=accent4d, forget plot] table [x=year, y=other, col sep=comma] {vulnerability_funds_pct.csv};
+
+  % Legend entries in reverse order to match plot stack
+  \addlegendimage{area legend, fill=accent4d} \addlegendentry{Other}
+  \addlegendimage{area legend, fill=accent3d} \addlegendentry{Slippage}
+  \addlegendimage{area legend, fill=accent2d} \addlegendentry{Arbitrary Call}
+  \addlegendimage{area legend, fill=accent1d} \addlegendentry{Token Design}
+  \addlegendimage{area legend, fill=accent6} \addlegendentry{Input Validation}
+  \addlegendimage{area legend, fill=accent5} \addlegendentry{Precision Loss}
+  \addlegendimage{area legend, fill=accent4} \addlegendentry{Reentrancy}
+  \addlegendimage{area legend, fill=accent3} \addlegendentry{Access Control}
+  \addlegendimage{area legend, fill=accent2} \addlegendentry{Price Manipulation}
+  \addlegendimage{area legend, fill=accent1} \addlegendentry{Business Logic}
+
+  \end{axis}
+  \end{tikzpicture}
+  \caption{Smart contract vulnerabilities by total funds lost, 2021--2024.}
+  \label{fig:vulnerabilities_funds}
+\end{figure}
+
+\newpage
+
+As we can see, some vulnerability types generally lead to larger damages. We can compare by average funds lost per exploit, although due to the vast differences in exploit size, large outliers can strongly influence the average. Therefore, we also consider the median exploit size.
+
+\begin{table}[h!]
+\centering
+{\setlength{\extrarowheight}{5pt}
+\begin{tabular}{  c  c  c  c  c  c }
+  \toprule
+  Class                            & Occurrences & Total Funds Lost & Average Loss    & Median Loss \\[4pt]
+  \midrule
+  Business Logic           & 151                  & \$452 million      &\$3.47 million    & \$57k             \\[3pt]
+  Price Manipulation   & 108                  & \$422 million      & \$3.91 million   & \$88k             \\[3pt]
+  Access Control          & 76                    & \$60.5 million     & \$0.796 million & \$78k             \\[3pt]
+  Reentrancy                 & 54                    & \$284 million      & \$5.26 million   & \$725k           \\[3pt]
+  Precision Loss            & 40                    & \$151.7 million   & \$3.79 million   & \$200k           \\[3pt]
+  Input Validation         & 38                    & \$141.5 million   & \$3.72 million   & \$150k           \\[3pt]
+  Token Design             & 28                    & \$5.63 million      & \$0.201 million & \$14k            \\[3pt]
+  Arbitrary Call              & 26                    & \$15.7 million     & \$0.604 million & \$114k           \\[3pt]
+  Slippage                      & 13                    & \$11.75 million   & \$0.904 million & \$76k             \\[3pt]
+  Other                           & 15                    & \$54.4 million     & \$3.63 million   & \$68k             \\[3pt]
+  \bottomrule
+\end{tabular}
+}
+\caption{Vulnerability classes by prevalence and impact}
+\label{table:vulnerability_classes}
+\end{table}
+
+We can clearly see that reentrancy is by far the most impactful vulnerability class, both by average and median exploit size. Of course, it always depends on the analyzed time period -- in 2022, the term \textbf{read-only reentrancy} was coined \cite{readonly-reentrancy} to describe a new kind of reentrancy exploit. Often, when novel attack patterns are discovered, there is a subsequent flurry of exploits taking advantage of vulnerable protocols. However, given our dataset covers an entire four-year period, which corresponds roughly 40\% of Ethereum's entire lifespan, it should still be relatively meaningful. Moreover, including older data might be misleading, since some kinds of vulnerabilities such as overflows simply do not happen frequently anymore, either due to improved tooling or widespread knowledge of how to mitigate them.
+
+\subsection{Reentrancy}
+Unfortunately, reentrancy has been a well-known issue for a long time. The first ever reentrancy exploit, known as \textbf{the DAO hack} \cite{dao-hack}, garnered incredible attention at the time. In fact, this resulted in the only ever retroactive hard-fork in Ethereum's history! That means the majority of the Ethereum community agreed to roll back the blockchain to a block \textit{before} the hack occurred, and agreed to modify the contract's state so that it was no longer exploitable. This was very controversial at the time, and led to a literal divide in the community -- the original blockchain was still continued and has become known as \textbf{Ethereum Classic}, albeit with a smaller following.
+\par
+Since then, reentrancy has continued to plague projects deployed on the Ethereum blockchain. It is one of the most well-known vulnerabilities, especially due to the fact it is unique to the EVM. Most developers know about it and try to protect against it, but clearly not sufficiently. It is also conceptually easy to distinguish from other vulnerabilities, by asking a simple question: Could the same state changes have been made with two (or more) \textit{sequential} calls, instead of two \textit{nested} ones? If not, then reentrancy must have been at play.
+\par
+To make matters worse, the vast majority of contracts do not even require reentrant behaviour to operate correctly. Developers are simply not adequately protecting against reentrant calls, even though most projects could just reject every reentrant call by default. As we have seen, reentrancy makes up around 10\% of vulnerability exploits today, and 17\% of lost funds. The natural question to ask is \textit{why}? How can such a well-known and prevalent vulnerability still be an issue ten years after its first discovery? Clearly, there must be a lack of adequate protection mechanisms in available tools. We will discuss these mechanisms in more detail in chapter \ref{ch:methodology}.
+
+\subsubsection{Read-only Reentrancy}
+We briefly mentioned \textbf{read-only reentrancy} as a novel type of attack pattern. What makes it unusual is that the exploited contract is not usually reentered. In most cases, the main contract is relying on an external \textbf{oracle} contract to determine some value, often an exchange rate between currencies. The attacker is then able to influence the oracle in some way, for instance by trading or depositing funds. The oracle then calls back to the attacker, who can now call the victim contract. Due to the oracle still being mid-execution, when the victim contract reads values from the oracle, they may be in an inconsistent state. In some cases, this can then allow the victim contract to be drained of funds. While it is an interesting attack pattern, there's nothing special about the reentrancy itself here -- the bug originates from a write-read conflict in the oracle contract.
+
+\section{Security \& Auditing}
+Having seen the variety of vulnerabilities and attack patterns, it becomes clear that identifying them requires significant expertise. Developers cannot be expected to anticipate every possible exploit, especially those requiring unusual or novel attack patterns. Similarly, users of protocols are even less likely to be able to reason about the security of code. Hence, both groups rely on third-party auditors, who on the one hand provide developers with private bug reports so they can amend their code before deployment, and on the other hand publish an audit report detailing the findings, so that users can make more educated guesses about the reliability of a new project.
+\par
+Furthermore, automatic tools are not adequate enough to provide useful findings in most cases. Thus, the ecosystem heavily relies on auditors as the primary mechanism for catching vulnerabilities before deployment. In addition, bug bounty programs are quite common, either before deployment as a sort of ``crowd-funded'' audit, or more frequently to incentivize responsible disclosure so that vulnerable contracts can be updated or retired. The downside of such bug bounties is that most contributors will not spend much time diving deep into the code, instead submitting a vast amount of surface-level issues to optimize for quantity of bugs over quality. By contrast, auditors are compensated for their time, not their findings, letting them gain a much deeper understanding of the codebase and its potential issues.
+\par
+Given the reliance on human feedback for vulnerability detection, it becomes important to optimize code for \textit{auditability}. This is one of the driving factors behind Vyper's design -- simplicity in the language design allows auditors to quickly understand what is going on. This is not necessarily the case in Solidity, since inheritance and function overloading / overriding means it is not immediately clear what code is being executed when a function is called. Therefore, an auditor must first deal with the nebulous language design to even understand what code is being executed, let alone whether or not it is correct. Hence, the importance of language design becomes clear: By optimizing code for \textit{auditability}, we can accelerate and improve the audit process, making it faster, cheaper, and more effective at finding bugs.
+\par
+Note that code \textit{readability} is not necessarily the same thing -- readability implies the ease of inferring what code does. However, auditors want to do the opposite: They want to be sure about what the code \textit{does not} do, i.e. rule out vulnerabilities. This can be done for example by making side effects explicit, instead of expecting the auditor to always be able to infer when some implicit effect is occurring. Alternatively, the type system of a language can enforce certain properties, for example that the failure case of an external call must be correctly handled. Again, this shifts the burden away from developer / auditor discipline, and onto the compiler.
 
 \section{Language Design Concepts}
 
+\subsection{Type systems and type safety}
 
+A type system defines a set of rules for assigning types to program expressions, which enables the compiler to reject problematic programs at compile time. In principle, this means if we can define a type system that rules out certain kinds of vulnerabilities, then those vulnerabilities become impossible in our language. In the context of smart contracts, type safety is particularly important, since it allows bugs to be caught before deployment. Another important factor is the \textit{expressivity} of the type system -- the more expressive a type system is, the larger the variety of concepts that can be natively modelled in it. This is an attractive feature, since it means developers don't have to implement their own functionality, and it again provides the opportunity for bugs to be caught at compile time. Note that \textit{expressivity} does not necessarily imply \textit{complexity}.
+
+\subsubsection{Type Inference}
+Forcing a developer to write out the type of every expression explicitly can become very tedious. Thus, most languages \textit{infer} the types of (sub-)expressions automatically by following the rules of their type system. This can be taken a step further, by not only inferring the expressions, but for example also the types of local variables and functions. If a type cannot be inferred by the compiler, it will simply require the user to specify the type explicitly. Type inference is a mechanism to make a language more convenient for developers, especially if its type system is difficult to satisfy. Hindley-Milner inference \cite{hindley} \cite{milner}, or more specifically Algorithm W \cite{damas-milner}, is a sound type inference algorithm typically used for functional programming languages, but can also be applied to many other type systems.
+
+\subsection{Algebraic Data Types}
+Algebraic Data Types are commonly used in functional programming languages, but have also made their way into more mainstream programming languages such as Python and Rust. Rust's \rustinline{enum} is not a traditional enumeration type, but instead an algebraic data type. ADTs typically allow composing types in two distinct ways: As a \textbf{product}, which means combining types as in traditional structs; or as a \textbf{sum}, which represents one of several variants, as in traditional enums. The key point is that these products and sums can be combined in arbitrary ways. It also means that every traditional struct or enum is by definition also an ADT which only uses one of the two composition rules. The most common examples of ADTs are the \rustinline{Maybe} / \rustinline{Option} type for nullable / optional values, and the \rustinline{Result} type for error handling.
+
+\paragraph{Option}
+The \rustinline{Option} type is defined as the sum of an empty type, and an arbitrary type $T$. This means it can either contain a value of type $T$, or nothing -- this is in a sense equivalent to allowing a \lstinline{null} value as in Java, but allows the compiler to enforce that every \rustinline{Option} type must first be checked to be non-null before using it. In Rust, it is defined as:
+\begin{lstlisting}[language=Rust, style=boxed]
+enum Option<T> {
+  Some(T),
+  None,
+}
+\end{lstlisting}
+
+\paragraph{Result}
+The \rustinline{Result} type is defined as the sum of two different arbitrary types $T$ and $E$. $T$ represents the result of a successful computation, whereas $E$ holds information about the error case, for example an error message. Therefore, a \rustinline{Result} natively represents the \textit{result} of a potentially failing computation. Alternatively, it can be used to represent a computation that can simply return one of two different types of results. The type is defined as follows:
+\begin{lstlisting}[language=Rust, style=boxed]
+enum Result<T, E> {
+  Ok(T),
+  Err(E),
+}
+\end{lstlisting}
+
+\paragraph{Pattern Matching}
+What makes ADTs so powerful is that they can model alternatives that may contain further data. For example, they are extremely useful when modelling abstract syntax trees. There are many different kinds of program expressions, each of which contains many fields. This can be directly modelled with ADTs, as opposed to having to declare one struct for each expression type, as well as a separate enum to distinguish them. They are also a perfect choice for modelling state machines, which are quite relevant for smart contract development. \par
+Usually, ADTs are combined with pattern matching, which is in essence a more powerful version of a \solinline{switch} statement. Pattern matching allows developers to distinguish between the various representations of sum types, which may be arbitrarily nested. Importantly, it is possible for the compiler to check that the match is \textbf{exhaustive}, meaning that every possible case has been covered.
+
+\subsection{Safety by Default}
+This is a design philosophy in language design which dictates that safe behaviour must be the default. Any unsafe behaviour requires the developer to explicitly opt in. For example, in Rust, all local variables are immutable by default, and can be explicitly declared mutable with the \rustinline{mut} keyword. By contrast, Solidity functions are mutable by default, and can be explicitly declared to be \solinline{view} or \solinline{pure} to restrict them -- exactly the opposite approach.
+
+\subsection{Side Effects}
+Side Effect is a catch-all term which essentially encompasses anything that isn't explicitly contained in a function's signature. A function is \textit{pure} if it has no side effects, meaning its output depends only on the arguments passed. For example, reading from transaction data is a side effect, since it is not explicitly provided as an argument. Logging an event is also a side effect, since it is externally visible but not part of the function's result type. For our purposes, we will mostly be focusing on state modifications, i.e. when a contract writes to storage.
+\par
+There are many different systems of handling side effects, and there is a rich theoretical background on effect systems in functional programming languages. However, in imperative languages, the concepts are much less formalised. One example is the \lstinline{throws} keyword in Java, which specifies in what ways a function might fail. Any caller of such a function is required to handle every declared failure case. In many cases, it is more important to make the side effect \textit{explicit} rather than mathematically modelling it in a perfectly accurate way. Annotations are the prototypical way of doing this, essentially by including the effects in the function signature, or otherwise marking areas in the code that may cause side effects.

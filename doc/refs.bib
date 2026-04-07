@@ -15,3 +15,373 @@
   location = {Vienna, Austria},
   series = {ARES '24}
 }
+
+@inproceedings{lira,
+author = {Bahr, Patrick and Berthold, Jost and Elsman, Martin},
+title = {Certified symbolic management of financial multi-party contracts},
+year = {2015},
+isbn = {9781450336697},
+publisher = {Association for Computing Machinery},
+address = {New York, NY, USA},
+url = {https://doi.org/10.1145/2784731.2784747},
+doi = {10.1145/2784731.2784747},
+abstract = {Domain-specific languages (DSLs) for complex financial contracts are in practical use in many banks and financial institutions today. Given the level of automation and pervasiveness of software in the sector, the financial domain is immensely sensitive to software bugs. At the same time, there is an increasing need to analyse (and report on) the interaction between multiple parties. In this paper, we present a multi-party contract language that rigorously relegates any artefacts of simulation and computation from its core, which leads to favourable algebraic properties, and therefore allows for formalising domain-specific analyses and transformations using a proof assistant. At the centre of our formalisation is a simple denotational semantics independent of any stochastic aspects. Based on this semantics, we devise certified contract analyses and transformations. In particular, we give a type system, with an accompanying type inference procedure, that statically ensures that contracts follow the principle of causality. Moreover, we devise a reduction semantics that allows us to evolve contracts over time, in accordance with the denotational semantics. From the verified Coq definitions, we automatically extract a Haskell implementation of an embedded contract DSL along with the formally verified contract management functionality. This approach opens a road map towards more reliable contract management software, including the possibility of analysing contracts based on symbolic instead of numeric methods.},
+booktitle = {Proceedings of the 20th ACM SIGPLAN International Conference on Functional Programming},
+pages = {315–327},
+numpages = {13},
+keywords = {Type System, Semantics, Haskell, Financial Contracts, Domain-Specific Language, Coq, Certified Code},
+location = {Vancouver, BC, Canada},
+series = {ICFP 2015}
+}
+
+@article{lira-evm,
+  author  = {Egelund-M{\"u}ller, Benjamin and Elsman, Martin and Henglein, Fritz and Ross, Omri},
+  title   = {Automated Execution of Financial Contracts on Blockchains},
+  journal = {Business \& Information Systems Engineering},
+  year    = {2017},
+  volume  = {59},
+  number  = {6},
+  pages   = {457--467},
+  doi     = {10.1007/s12599-017-0507-z},
+}
+
+@misc{zinc,
+  author       = {{Matter Labs}},
+  title        = {Zinc Framework},
+  howpublished = {\url{https://github.com/matter-labs/zinc}},
+  year         = {2020},
+  note = {Accessed: 2026-04-07}
+}
+
+@misc{scilla,
+      title={Scilla: a Smart Contract Intermediate-Level LAnguage}, 
+      author={Ilya Sergey and Amrit Kumar and Aquinas Hobor},
+      year={2018},
+      eprint={1801.00687},
+      archivePrefix={arXiv},
+      primaryClass={cs.PL},
+      url={https://arxiv.org/abs/1801.00687}, 
+}
+
+@article{lang-comparison,
+title = {Smart contract languages: A comparative analysis},
+journal = {Future Generation Computer Systems},
+volume = {164},
+pages = {107563},
+year = {2025},
+issn = {0167-739X},
+doi = {https://doi.org/10.1016/j.future.2024.107563},
+url = {https://www.sciencedirect.com/science/article/pii/S0167739X24005272},
+author = {Massimo Bartoletti and Lorenzo Benetollo and Michele Bugliesi and Silvia Crafa and Giacomo Dal Sasso and Roberto Pettinau and Andrea Pinna and Mattia Piras and Sabina Rossi and Stefano Salis and Alvise Spanò and Viacheslav Tkachenko and Roberto Tonelli and Roberto Zunino},
+keywords = {Smart contracts, Blockchain, Decentralized applications, Cryptocurrencies, Programming languages},
+abstract = {Smart contracts have played a pivotal role in the evolution of blockchains and Decentralized Applications (DApps). As DApps continue to gain widespread adoption, multiple smart contract languages have been and are being made available to developers, each with its distinctive features, strengths, and weaknesses. In this paper, we examine the smart contract languages used in major blockchain platforms, with the goal of providing a comprehensive assessment of their main properties. Our analysis targets the programming languages rather than the underlying architecture: as a result, while we do consider the interplay between language design and blockchain model, our main focus remains on language-specific features such as usability, programming style, safety and security. To conduct our assessment, we propose an original benchmark which encompasses a wide, yet manageable, spectrum of key use cases that cut across all the smart contract languages under examination.}
+}
+
+@inproceedings{flint,
+author = {Schrans, Franklin and Eisenbach, Susan and Drossopoulou, Sophia},
+title = {Writing safe smart contracts in Flint},
+year = {2018},
+isbn = {9781450355131},
+publisher = {Association for Computing Machinery},
+address = {New York, NY, USA},
+url = {https://doi.org/10.1145/3191697.3213790},
+doi = {10.1145/3191697.3213790},
+abstract = {Blockchain-based platforms such as Ethereum support the execution of versatile decentralized applications, known as smart contracts. These typically hold and transfer digital currency (e.g., Ether) to other parties on the platform. Contracts have been subject to numerous attacks, losing hundreds of millions of dollars (in Ether). We propose Flint, a new type-safe, capabilities-secure, contract-oriented programming language specifically designed for writing robust smart contracts. To help programmers reason about access control of functions, Flint programmers use caller capabilities. To prevent vulnerabilities relating to the unintentional loss of currency, transfers of assets in Flint are performed through safe atomic operations, inspired by linear type theory.},
+booktitle = {Companion Proceedings of the 2nd International Conference on the Art, Science, and Engineering of Programming},
+pages = {218–219},
+numpages = {2},
+keywords = {Ethereum, Programming Language, Smart Contracts},
+location = {Nice, France},
+series = {Programming '18}
+}
+
+@mastersthesis{flint-verif,
+  author = {Gabrielides, Ioannis},
+  title  = {Automatic Verification of Flint Smart Contracts},
+  school = {Imperial College London},
+  year   = {2019},
+  note = {Available at \url{https://github.com/flintlang/flint/blob/master/docs/pdfs%20(student%20theses)/verification/IoannisGabrielides.pdf}, Accessed: 2026-04-07},
+}
+
+@inproceedings{idris-evm,
+  title={Safer smart contracts through type-driven development},
+  author={Jack Pettersson and Robert Edstr{\"o}m},
+  year={2016},
+  url={https://api.semanticscholar.org/CorpusID:62247546}
+}
+
+@article{idris1, title={Idris, a general-purpose dependently typed programming language: Design and implementation}, volume={23}, DOI={10.1017/S095679681300018X}, number={5}, journal={Journal of Functional Programming}, author={BRADY, EDWIN}, year={2013}, pages={552–593}}
+
+@InProceedings{idris2,
+  author =	{Brady, Edwin},
+  title =	{{Idris 2: Quantitative Type Theory in Practice}},
+  booktitle =	{35th European Conference on Object-Oriented Programming (ECOOP 2021)},
+  pages =	{9:1--9:26},
+  series =	{Leibniz International Proceedings in Informatics (LIPIcs)},
+  ISBN =	{978-3-95977-190-0},
+  ISSN =	{1868-8969},
+  year =	{2021},
+  volume =	{194},
+  editor =	{M{\o}ller, Anders and Sridharan, Manu},
+  publisher =	{Schloss Dagstuhl -- Leibniz-Zentrum f{\"u}r Informatik},
+  address =	{Dagstuhl, Germany},
+  URL =		{https://drops.dagstuhl.de/entities/document/10.4230/LIPIcs.ECOOP.2021.9},
+  URN =		{urn:nbn:de:0030-drops-140527},
+  doi =		{10.4230/LIPIcs.ECOOP.2021.9},
+  annote =	{Keywords: Dependent types, linear types, concurrency}
+}
+
+@misc{fe,
+  author       = {{Ethereum Foundation}},
+  title        = {Fe Programming Language},
+  howpublished = {\url{https://fe-lang.org}},
+  year         = {2020},
+  note = {Accessed: 2026-04-07}
+}
+
+@misc{fe26,
+  author       = {{Ethereum Foundation}},
+  title        = {Fe Programming Language},
+  howpublished = {\url{https://blog.fe-lang.org/posts/fe26-a-fresh-start/}},
+  year         = {2026},
+  note = {Accessed: 2026-04-07}
+}
+
+@inproceedings{move,
+  title={Move: A Language With Programmable Resources},
+  author={Sam Blackshear and Evan Cheng and David L. Dill and Victor Gao and Ben Maurer and Todd Nowacki and Alistair Pott and Shaz Qadeer and Dario Rain and Stephane Russi and Tim Sezer and Runtian Zakian and Zhou},
+  year={2019},
+  url={https://api.semanticscholar.org/CorpusID:201681125}
+}
+
+@article{hindley,
+  author  = {Hindley, J. Roger},
+  title   = {The Principal Type-Scheme of an Object in Combinatory Logic},
+  journal = {Transactions of the American Mathematical Society},
+  year    = {1969},
+  volume  = {146},
+  pages   = {29--60},
+  doi     = {10.2307/1995158},
+}
+
+@article{milner,
+  author  = {Milner, Robin},
+  title   = {A Theory of Type Polymorphism in Programming},
+  journal = {Journal of Computer and System Sciences},
+  year    = {1978},
+  volume  = {17},
+  number  = {3},
+  pages   = {348--375},
+  doi     = {10.1016/0022-0000(78)90014-4},
+}
+
+@inproceedings{damas-milner,
+  author    = {Damas, Luis and Milner, Robin},
+  title     = {Principal Type-Schemes for Functional Programs},
+  booktitle = {Proceedings of the 9th ACM Symposium on Principles of Programming Languages},
+  year      = {1982},
+  pages     = {207--212},
+  doi       = {10.1145/582153.582176},
+}
+
+@article{thih,
+  author = {Jones, Mark},
+  year = {2001},
+  month = {03},
+  title = {Typing Haskell in Haskell},
+  howpublished= {\url{https://web.cecs.pdx.edu/~mpj/thih/thih.pdf}},
+  note = {Accessed: 2026-04-07}
+}
+
+@misc{dataset,
+  author       = {{DeFiHackLabs}},
+  title        = {Reproduce DeFi Hacks using Foundry},
+  howpublished = {\url{https://github.com/SunWeb3Sec/DeFiHackLabs}},
+  year         = {2026},
+  note = {Accessed: 2026-04-07}
+}
+
+@misc{cei,
+  author       = {{Ethereum Foundation}},
+  title        = {Solidity Documentation: Security Considerations},
+  howpublished = {\url{https://docs.soliditylang.org/en/latest/security-considerations.html}},
+  year         = {2024},
+}
+
+@misc{openzeppelin,
+  author       = {{OpenZeppelin}},
+  title        = {OpenZeppelin Contracts},
+  howpublished = {\url{https://docs.openzeppelin.com/contracts}},
+  year         = {2026},
+  note = {Accessed: 2026-04-07}
+}
+
+@INPROCEEDINGS{slither,
+  author={Feist, Josselin and Grieco, Gustavo and Groce, Alex},
+  booktitle={2019 IEEE/ACM 2nd International Workshop on Emerging Trends in Software Engineering for Blockchain (WETSEB)}, 
+  title={Slither: A Static Analysis Framework for Smart Contracts}, 
+  year={2019},
+  volume={},
+  number={},
+  pages={8-15},
+  keywords={Tools;Smart contracts;Static analysis;Optimization;Security;Detectors;Blockchain;Smart Contract;Solidity;Static Analysis;Vulnerability Detection},
+  doi={10.1109/WETSEB.2019.00008}}
+
+@misc{mythril,
+  author       = {{ConsenSys Diligence}},
+  title        = {Mythril: Security Analysis Tool for EVM Bytecode},
+  howpublished = {\url{https://github.com/ConsenSysDiligence/mythril}},
+  year         = {2018},
+  note = {Accessed: 2026-04-07}
+}
+
+@inproceedings{how-effective-analysis-tools,
+author = {Ghaleb, Asem and Pattabiraman, Karthik},
+title = {How effective are smart contract analysis tools? evaluating smart contract static analysis tools using bug injection},
+year = {2020},
+isbn = {9781450380089},
+publisher = {Association for Computing Machinery},
+address = {New York, NY, USA},
+url = {https://doi.org/10.1145/3395363.3397385},
+doi = {10.1145/3395363.3397385},
+abstract = {Security attacks targeting smart contracts have been on the rise, which have led to financial loss and erosion of trust. Therefore, it is important to enable developers to discover security vulnerabilities in smart contracts before deployment. A number of static analysis tools have been developed for finding security bugs in smart contracts. However, despite the numerous bug-finding tools, there is no systematic approach to evaluate the proposed tools and gauge their effectiveness. This paper proposes SolidiFI, an automated and systematic approach for evaluating smart contracts’ static analysis tools. SolidiFI is based on injecting bugs (i.e., code defects) into all potential locations in a smart contract to introduce targeted security vulnerabilities. SolidiFI then checks the generated buggy contract using the static analysis tools, and identifies the bugs that the tools are unable to detect (false-negatives) along with identifying the bugs reported as false-positives. SolidiFI is used to evaluate six widely-used static analysis tools, namely, Oyente, Securify, Mythril, SmartCheck, Manticore and Slither, using a set of 50 contracts injected by 9369 distinct bugs. It finds several instances of bugs that are not detected by the evaluated tools despite their claims of being able to detect such bugs, and all the tools report many false positives.},
+booktitle = {Proceedings of the 29th ACM SIGSOFT International Symposium on Software Testing and Analysis},
+pages = {415–427},
+numpages = {13},
+keywords = {Ethereum, Ethereum security, bug injection, fault injection, smart contracts, smart contracts analysis, smart contracts dataset, smart contracts security, solidity code analysis, static analysis tools evaluation},
+location = {Virtual Event, USA},
+series = {ISSTA 2020}
+}
+
+@inproceedings{tool-efficacy,
+author = {Chaliasos, Stefanos and Charalambous, Marcos Antonios and Zhou, Liyi and Galanopoulou, Rafaila and Gervais, Arthur and Mitropoulos, Dimitris and Livshits, Benjamin},
+title = {Smart Contract and DeFi Security Tools: Do They Meet the Needs of Practitioners?},
+year = {2024},
+isbn = {9798400702174},
+publisher = {Association for Computing Machinery},
+address = {New York, NY, USA},
+url = {https://doi.org/10.1145/3597503.3623302},
+doi = {10.1145/3597503.3623302},
+abstract = {The growth of the decentralized finance (DeFi) ecosystem built on blockchain technology and smart contracts has led to an increased demand for secure and reliable smart contract development. However, attacks targeting smart contracts are increasing, causing an estimated $6.45 billion in financial losses. Researchers have proposed various automated security tools to detect vulnerabilities, but their real-world impact remains uncertain.In this paper, we aim to shed light on the effectiveness of automated security tools in identifying vulnerabilities that can lead to high-profile attacks, and their overall usage within the industry. Our comprehensive study encompasses an evaluation of five SoTA automated security tools, an analysis of 127 high-impact real-world attacks resulting in $2.3 billion in losses, and a survey of 49 developers and auditors working in leading DeFi protocols. Our findings reveal a stark reality: the tools could have prevented a mere 8\% of the attacks in our dataset, amounting to $149 million out of the $2.3 billion in losses. Notably, all preventable attacks were related to reentrancy vulnerabilities. Furthermore, practitioners distinguish logic-related bugs and protocol layer vulnerabilities as significant threats that are not adequately addressed by existing security tools. Our results emphasize the need to develop specialized tools catering to the distinct demands and expectations of developers and auditors. Further, our study highlights the necessity for continuous advancements in security tools to effectively tackle the ever-evolving challenges confronting the DeFi ecosystem.},
+booktitle = {Proceedings of the IEEE/ACM 46th International Conference on Software Engineering},
+articleno = {60},
+numpages = {13},
+location = {Lisbon, Portugal},
+series = {ICSE '24}
+}
+
+@misc{underhanded,
+  author       = {{Franziska Heintel \& USC Judges}},
+  title        = {Announcing the Winners of the Underhanded Solidity Contest 2022},
+  howpublished = {\url{https://www.soliditylang.org/blog/2022/04/08/announcing-the-underhanded-contest-winners-2022/}},
+  year         = {2022},
+  note = {Accessed: 2026-04-07}
+}
+
+@misc{yellowpaper,
+  author       = {Wood, Gavin},
+  title        = {Ethereum: A Secure Decentralised Generalised Transaction Ledger},
+  howpublished = {\url{https://ethereum.github.io/yellowpaper/paper.pdf}},
+  year         = {2014},
+  note = {Accessed: 2026-04-07}
+}
+
+@misc{chainalysis,
+  author       = {{Chainalysis}},
+  title        = {The Chainalysis 2026 Crypto Crime Report},
+  howpublished = {\url{https://www.chainalysis.com/reports/crypto-crime-2026/}},
+  year         = {2024},
+  note = {Accessed: 2026-04-07}
+}
+
+@misc{immunefi,
+  author       = {{Immunefi}},
+  title        = {Crypto Losses in 2024},
+  howpublished = {\url{https://immunefi.com/research/}},
+  year         = {2024},
+  note = {Accessed: 2026-04-07}
+}
+
+@misc{slowmist,
+  author       = {{SlowMist}},
+  title        = {Blockchain Security and Anti-Money Laundering Annual Report},
+  howpublished = {\url{https://www.slowmist.com/report/2024-Blockchain-Security-and-AML-Annual-Report(EN).pdf}},
+  year         = {2024},
+  note = {Accessed: 2026-04-07}
+}
+@misc{solidity,
+  author       = {{Ethereum Foundation}},
+  title        = {Solidity Documentation},
+  howpublished = {\url{https://docs.soliditylang.org}},
+  year         = {2026},
+  note = {Accessed: 2026-04-07}
+}
+
+@misc{vyper,
+  author       = {{Vyper Team}},
+  title        = {Vyper Documentation},
+  howpublished = {\url{https://docs.vyperlang.org}},
+  year         = {2026},
+  note = {Accessed: 2026-04-07}
+}
+
+@article{Stefik2013,
+author = {Stefik, Andreas and Siebert, Susanna},
+title = {An Empirical Investigation into Programming Language Syntax},
+year = {2013},
+issue_date = {November 2013},
+publisher = {Association for Computing Machinery},
+address = {New York, NY, USA},
+volume = {13},
+number = {4},
+url = {https://doi.org/10.1145/2534973},
+doi = {10.1145/2534973},
+abstract = {Recent studies in the literature have shown that syntax remains a significant barrier to novice computer science students in the field. While this syntax barrier is known to exist, whether and how it varies across programming languages has not been carefully investigated. For this article, we conducted four empirical studies on programming language syntax as part of a larger analysis into the, so called, programming language wars. We first present two surveys conducted with students on the intuitiveness of syntax, which we used to garner formative clues on what words and symbols might be easy for novices to understand. We followed up with two studies on the accuracy rates of novices using a total of six programming languages: Ruby, Java, Perl, Python, Randomo, and Quorum. Randomo was designed by randomly choosing some keywords from the ASCII table (a metaphorical placebo). To our surprise, we found that languages using a more traditional C-style syntax (both Perl and Java) did not afford accuracy rates significantly higher than a language with randomly generated keywords, but that languages which deviate (Quorum, Python, and Ruby) did. These results, including the specifics of syntax that are particularly problematic for novices, may help teachers of introductory programming courses in choosing appropriate first languages and in helping students to overcome the challenges they face with syntax.},
+journal = {ACM Trans. Comput. Educ.},
+month = nov,
+articleno = {19},
+numpages = {40},
+keywords = {Syntax, Programming Languages, Novice Programmers}
+}
+
+@misc{Ferdowsi2023,
+      title={The Usability of Advanced Type Systems: Rust as a Case Study}, 
+      author={Kasra Ferdowsi},
+      year={2023},
+      eprint={2301.02308},
+      archivePrefix={arXiv},
+      primaryClass={cs.PL},
+      url={https://arxiv.org/abs/2301.02308}, 
+}
+
+@misc{Crichton2021,
+      title={The Usability of Ownership}, 
+      author={Will Crichton},
+      year={2021},
+      eprint={2011.06171},
+      archivePrefix={arXiv},
+      primaryClass={cs.PL},
+      url={https://arxiv.org/abs/2011.06171}, 
+}
+
+@misc{solidity-vs-vyper,
+  author       = {{Nadcab Labs}},
+  title        = {Choosing Between Solidity and Vyper for ICOs- A Professional Developer’s Perspective},
+  howpublished = {\url{https://www.nadcab.com/blog/solidity-vs-vyper-ico}},
+  year         = {2026},
+  note = {Accessed: 2026-04-07}
+}
+
+@misc{readonly-reentrancy,
+  author       = {{ChainSecurity}},
+  title        = {Curve LP Oracle Manipulation: Post Mortem},
+  howpublished = {\url{https://www.chainsecurity.com/blog/curve-lp-oracle-manipulation-post-mortem}},
+  year         = {2022},
+}
+
+@misc{dao-hack,
+  author       = {{Ethereum Foundation}},
+  title        = {Hard Fork Completed},
+  howpublished = {\url{https://blog.ethereum.org/2016/07/20/hard-fork-completed}},
+  year         = {2016},
+}
